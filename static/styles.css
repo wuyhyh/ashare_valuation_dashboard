@@ -31,3 +31,6 @@ body.chart-maximized{overflow:hidden}.chart-panel.analysis-maximized{position:fi
 .runtime-refresh{margin-left:auto;border:1px solid #dbe4f0;border-radius:7px;background:#f7faff;padding:5px 10px;color:#355878;font-size:11px}
 .runtime-tip{margin-bottom:13px;padding:10px 12px;border-radius:8px;background:#fff7e8;border:1px solid #f1dfbc;color:#8b621e;font-size:11px;line-height:1.6}
 @media(max-width:700px){.runtime-strip{gap:7px}.runtime-strip span{border-right:none;padding-right:0}.runtime-refresh{margin-left:0}}
+
+/* v0.9 navigation link */
+.sidebar a.menu-item{text-decoration:none}
