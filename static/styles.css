@@ -23,3 +23,11 @@ body.chart-maximized{overflow:hidden}.chart-panel.analysis-maximized{position:fi
 @media(max-width:760px){.drivers-range{margin-left:10px;margin-right:10px;overflow:hidden}.drivers-heading{margin-left:12px;margin-right:12px}.driver-kpis{grid-template-columns:1fr;gap:7px;margin-left:10px;margin-right:10px}.driver-kpis>div{padding:9px 12px}.driver-kpis strong{font-size:20px}.drivers-plots{margin-left:10px;margin-right:10px}.drivers-chart-card{padding:10px}.drivers-series-plot{height:350px}.driver-meta{margin-left:10px;margin-right:10px}.drivers-mode .chart-bottom-controls{grid-template-columns:1fr}.chart-panel.analysis-maximized .drivers-series-plot{height:440px}}
 .drivers-readiness{display:flex;gap:7px;flex-wrap:wrap;margin:9px 26px 0}.readiness-chip{display:inline-flex;gap:5px;align-items:center;padding:5px 8px;border-radius:999px;border:1px solid #dfe6ef;background:#f7f9fc;color:#677a92;font-size:9px}.readiness-chip.computable{border-color:#b9dfd4;background:#f1faf7;color:#287863}.readiness-chip.history_insufficient,.readiness-chip.same_date_insufficient{border-color:#ead8ae;background:#fff9ed;color:#8b6521}.readiness-chip.collection_failed{border-color:#efc1bd;background:#fff4f3;color:#a24b43}
 @media(max-width:760px){.drivers-readiness{margin-left:10px;margin-right:10px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:3px}}
+
+/* v0.8.1 local runtime and data-state inspection */
+.runtime-strip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#53667d;font-size:11px;margin-bottom:10px}
+.runtime-strip span{border-right:1px solid #dfe5ec;padding-right:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.runtime-strip span:last-of-type{border-right:none}
+.runtime-refresh{margin-left:auto;border:1px solid #dbe4f0;border-radius:7px;background:#f7faff;padding:5px 10px;color:#355878;font-size:11px}
+.runtime-tip{margin-bottom:13px;padding:10px 12px;border-radius:8px;background:#fff7e8;border:1px solid #f1dfbc;color:#8b621e;font-size:11px;line-height:1.6}
+@media(max-width:700px){.runtime-strip{gap:7px}.runtime-strip span{border-right:none;padding-right:0}.runtime-refresh{margin-left:0}}
