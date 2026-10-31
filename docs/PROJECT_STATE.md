@@ -5,7 +5,7 @@
 ## 当前版本
 - 当前开发分支：`feat/v07-official-data`，对应 GitHub PR #2；不得直接合并 `main`。
 - 主分支基线：`cfbdecf`。
-- v0.7 实现提交：待本次实现提交后补记。
+- v0.7 实现提交：`6b5c9ba`。
 - 数据库：沿用 SQLite v3，无 schema 变更；联网导入前备份为 `valuation.sqlite3.backup-pre-v07-official-20261031`。
 
 ## 已实现
