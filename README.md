@@ -4,12 +4,12 @@
 
 ## 为什么运行 `python app.py` 可能看不到 Codex 的真实数据？
 
-`python app.py` **只启动本地 HTTP 服务，不自动联网采集**。代码在 Git 仓库中共享，但 `valuation.sqlite3`（含真实估值和行情）被 `.gitignore` 排除；Codex 本机已采集的 12/12 个真实序列不会随着 Git 推送进入另一台电脑。尚未合并的 PR #5 v0.8 开发分支也不等于本地 `main`。
+`python app.py` **只启动本地 HTTP 服务，不自动联网采集**。代码在 Git 仓库中共享，但 `valuation.sqlite3`（含真实估值和行情）被 `.gitignore` 排除；Codex 本机已采集的 12/12 个真实序列不会随着 Git 推送进入另一台电脑。v0.8 已合并到主分支；尚未合并的 v0.9 开发分支与本地 `main` 仍可能不同。
 
 ```bash
 git fetch origin
-git switch feat/v08-multi-index-valuation
-git pull --ff-only origin feat/v08-multi-index-valuation
+git switch main
+git pull --ff-only origin main
 python app.py doctor                       # 不联网：查看当前分支/提交、实际 SQLite 路径、12项覆盖
 python app.py sync                         # 显式备份 SQLite 并联网更新全部12项（可能被限流）
 python app.py                              # 启动页面，不联网更新
@@ -20,6 +20,25 @@ python app.py                              # 启动页面，不联网更新
 页面上方新增运行环境状态条，能显示当前代码分支/提交、实际数据库是否存在、真实序列数，并可点击“检查本机状态”。如果浏览器仍显示旧版，检查旧进程是否占用 `127.0.0.1:8765`（例如 `lsof -nP -iTCP:8765 -sTCP:LISTEN`）并从新服务地址重新打开。注意中国内地 A 股休市日没有新增交易日行情；最新完整交易日可能仍是此前的星期五。
 
 **演示数据策略：** `/api/history` 默认只返回 SQLite 中已存在的真实历史；数据库为空时返回空数据和缺失状态，不再自动生成看似正常的估值曲线。仅显式请求 `/api/history?index=000300&metric=pe_ttm&demo=1` 时才输出带 `is_demo=true` 标记的合成示例。\n\n**安全规则：** `sync` 使用 SQLite 在线备份生成 `valuation.sqlite3.backup-before-sync-...`，逐项失败不会把其他来源静默伪装为成功。不会在页面启动时自动请求12个外部接口，以避免限流与启动卡顿。若各上游返回429/证书错误，先查看同步错误，再处理网络或证书环境。
+
+## 体验 v0.9 开发分支（市场宽度 + 跨资产）
+
+```bash
+git fetch origin
+git switch feat/v09-market-breadth
+git pull --ff-only origin feat/v09-market-breadth
+
+# 仅首次需主动联网采集；可分标的运行
+python app.py breadth-update
+python app.py assets-update --asset 000688
+python app.py assets-update --asset 399673
+python app.py assets-update --asset 518880
+
+python app.py
+# 浏览器打开 /breadth.html 或 /assets.html
+```
+
+**目前属于 Draft**：真实股票池完整性、3项跨资产实际联网数据和两页面的完整Playwright测试尚需在开发机验收。不要将页面缺失数据理解为已验证的行情。
 
 ## v0.9（开发中）：科创50、创业板50与华安黄金ETF价格观察
 - `/assets.html` 提供三对象真实收盘价走势图，可切换3个月、6个月、1/3/5/8/10年和全部历史；日期轴缩放自动细化。
