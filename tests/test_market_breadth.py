@@ -2,6 +2,13 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
+import json
+import threading
+import urllib.request
+from http.server import ThreadingHTTPServer
+from unittest.mock import patch
+
+import app
 
 import pytest
 
@@ -119,3 +126,33 @@ def test_bad_capture_does_not_change_existing_history():
         with pytest.raises(breadth.BreadthError):
             breadth.create_capture([], source_interface="fixture", source_name="test", min_identified=1)
         assert breadth.latest_report(db)["capture"]["capture_id"] == good["capture_id"]
+
+
+def test_breadth_http_api_is_read_only_and_never_returns_demo():
+    with tempfile.TemporaryDirectory() as directory:
+        db = Path(directory) / "breadth.sqlite3"
+        with patch.object(app, "BREADTH_DB", db):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            url = f"http://127.0.0.1:{server.server_port}/api/breadth"
+            try:
+                with urllib.request.urlopen(url) as response:
+                    empty = json.load(response)
+                assert not empty["available"]
+                assert not db.exists()
+                snapshot = breadth.create_capture(
+                    [q("600001", "样本", 1)], source_interface="fixture",
+                    source_name="offline-test", min_identified=1,
+                )
+                breadth.persist_capture(snapshot, db)
+                with urllib.request.urlopen(url) as response:
+                    payload = json.load(response)
+                assert payload["available"]
+                assert payload["groups"]["ALL_all"]["advances"] == 1
+                assert payload["capture"]["trading_date"] is None
+                assert not payload["historical_trend_ready"]
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
