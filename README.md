@@ -1,6 +1,17 @@
-# A 股市场估值观察站（v0.6）
+# A 股市场估值观察站（v0.7）
 
-本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.6 保留 v0.3 的真实数据管线、v0.4 的共享时间轴双图和 v0.5 的统一操作区与多指数比较，新增严格同日的指数涨跌归因。
+本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.7 保留既有界面、统计与数据库结构，修复真实指数日线采集，并让月频估值可以与日频指数点位进行严格同日归因。
+
+## v0.7 数据可用性
+
+- 指数行情提供方层支持 `sina`、`tencent`、`eastmoney_daily`、`eastmoney_legacy` 和按顺序有界回退的 `auto`。
+- 每个提供方拥有独立 `series_id`、来源接口与方法说明；不同来源不会静默拼接，ETF 价格不会替代指数点位。
+- 首次启用或切换来源时，优先用另一独立接口核验至少 5 个共同交易日；核验结果写入质量状态。
+- 修复大批量行情通过子进程队列时的等待死锁；请求有超时、显式重试上限，失败不会切换或破坏当前活动序列。
+- 支持带来源名称与核验说明的受控指数 CSV 导入，明确标记为用户数据而非官方数据。
+- 归因频率由估值活动序列的 `frequency` 决定：支持日频与月频，拒绝未知频率或把月频误作日频。
+- 月频归因要求至少 75% 同日覆盖、起点不晚于目标日 45 天、最多连续缺失 2 个自然月；不插值、不前向填充。
+- 归因 API 返回频率、共同样本数、期望期数、覆盖率、最大连续缺失周期和 1/3/5/10 年窗口准备状态。
 
 ## v0.6 行情涨跌归因
 
@@ -87,36 +98,42 @@ python app.py update --index 000300 --metric pb
 指数点位诊断与更新：
 
 ```bash
-python app.py diagnose-market --index 000300 --start 20160101 --end 20261030
-python app.py update-market --index 000300 --start 20160101 --end 20261030
+python app.py diagnose-market --index 000300 --provider sina --cross-check tencent --start 20261001 --end 20261030
+python app.py update-market --index 000300 --provider auto --start 20160101 --end 20261030
+python app.py diagnose-market --index 000300 --provider csindex_official --cross-check sina --start 20160101 --end 20261030
+python app.py update-market --index 000300 --provider csindex_official --start 20160101 --end 20261030
+python app.py import-market --index 000300 --file index.csv \
+  --source-name "文件供应方" --verification-notes "已核对指数代码、日期与收盘字段"
 ```
 
 命令行更新失败返回非零退出码。网页更新仍调用原有 `/api/update` 和 `/api/update-market`，失败时保留原始完整历史。
 
 ## 数据覆盖与来源
 
-2026-10-31 当前真实数据库：
+2026-10-31 本机联网验收数据库（SQLite 不随仓库分发）：
 
 | 指数 | 指标 | 记录数 | 覆盖区间 | 频率 | 来源接口 |
 | --- | --- | ---: | --- | --- | --- |
 | 沪深300 | PE TTM | 259 | 2005-04-29 ～ 2026-10-30 | 月频 | `ak.stock_index_pe_lg` |
 | 沪深300 | PB | 259 | 2005-04-29 ～ 2026-10-30 | 月频 | `ak.stock_index_pb_lg` |
+| 沪深300 | 指数收盘 | 2628 | 2016-01-04 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_daily` 与 `ak.stock_zh_index_hist_csindex` 均已独立核验 |
 | 上证50 / 中证500 / 中证1000 | PE/PB | 0 | — | — | 尚无已验证真实序列 |
 
 PE 严格使用 `滚动市盈率`，不使用静态、等权或中位数列；PB 严格使用 `市净率`，不使用等权或中位数列。不同 `series_id` 不会拼接。
 
-指数收盘目标接口为 `ak.index_zh_a_hist`，存储指数自身不复权日线收盘点位，不使用 ETF。2026-10-31 现场联网请求仍遭东方财富 `Push2RateLimitError`，当前真实 SQLite 没有指数点位；页面会明确提示缺失。Playwright 中的点位和四指数序列均标记为测试模拟响应，只验证交互且不写入 SQLite。
+2026-10-31 使用 AKShare `1.20.18` 实际验证：新浪 `ak.stock_zh_index_daily("sh000300")` 返回 6020 条（2002-01-04 至 2026-10-30），写库时按请求区间保存 2628 条；腾讯最近区间返回 17 条。中证官方接口同区间返回 2628 条，官方收盘与新浪共同日期最大绝对差 `0.005` 点。官方滚动 PE 与乐咕 PE 在共同月末最大相对差约 `25.22%`，因此官方 PE 只保留为独立研究候选，不自动激活。真实 SQLite 中乐咕 PE/PB 月频序列与指数日线的 1/3/5/10 年归因均可计算，覆盖率 100%。
 
 ## 数据安全
 
 - 沿用 SQLite schema v3：`series`、`observations`、`active_series`、`update_runs`。
-- v0.6 没有修改数据库结构，也没有覆盖、删除现有估值记录。
+- v0.7 没有修改数据库结构，也没有覆盖、删除现有估值记录；更新前备份为 `valuation.sqlite3.backup-pre-v07-20261031`。
 - 日期排序、去重、未来日期拒绝、空数据/列变化拒绝、缺口和突变标记逻辑保持不变。
+- 候选指数历史明显短于当前活动历史时拒绝切换并记录失败，避免短期回退覆盖完整十年序列。
 - 比较 API `/api/comparison` 只返回当前激活的真实 SQLite 序列，不调用 `demo_rows`。
 - 四指数共同日期通过真实日期集合交集计算。
 - 来源接口或 methodology 不一致时，`strict_comparison=false`，前端以警告色展示。
 - 比较条形图仅绘制具有共同基准日、相同来源口径、足够样本且覆盖完整统计窗口的序列；被排除的序列仍保留在明细表并显示原因。
-- 图表标题区提供“复位缩放”，可恢复当前 3月～全部历史观察范围；脚本版本已提升至 `v0.5.1`，避免浏览器继续使用旧缓存。
+- 图表标题区提供“复位缩放”，可恢复当前 3月～全部历史观察范围；静态资源版本已提升至 `v0.7`，避免浏览器继续使用旧缓存。
 
 ## 测试
 
@@ -148,6 +165,8 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 - 桌面和390px窄屏工具栏、横向滚动及刻度标签。
 - 原有采集幂等、网络失败保护、口径隔离、SQLite迁移和质量验证。
 - 归因恒等式、同日匹配、历史不足、稀疏数据、混源和大缺口拒绝。
+- 月频 1/3/5/10 年归因、75% 覆盖阈值、连续缺失 3 月拒绝和频率误分类拒绝。
+- 指数提供方回退、五日交叉核验、受控 CSV 导入、重复更新幂等和失败保留。
 - 归因模式 PE/PB、区间、指数、最大化和窄屏真实浏览器交互。
 
 截图：
@@ -158,6 +177,9 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 - `artifacts/v0.5-mobile-controls.png`
 - `artifacts/v0.6-decomposition.png`
 - `artifacts/v0.6-decomposition-mobile.png`
+- `artifacts/v0.7-monthly-attribution.png`
+- `artifacts/v0.7-monthly-attribution-mobile.png`
+- `artifacts/v0.7-live-monthly-attribution.png`（当前真实 SQLite：新浪点位 + 乐咕月频估值）
 
 ## 文件结构
 

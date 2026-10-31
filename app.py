@@ -24,6 +24,9 @@ from data_sources import (
     diagnose_source,
     get_update_status,
     import_history,
+    import_index_history,
+    PROVIDER_CHOICES,
+    PROVIDER_ORDER,
     read_active_history,
     read_index_history,
     update_history,
@@ -78,6 +81,44 @@ def get_status():
     return get_update_status(db_path=DB)
 
 
+def get_coverage_data():
+    metrics = ("pe_ttm", "pb", "index_close")
+    indices = []
+    available = 0
+    for index_code in COMPARISON_INDICES:
+        metric_status = {}
+        for metric in metrics:
+            rows, status = read_active_history(DB, index_code, metric)
+            status = status or {}
+            if rows:
+                available += 1
+                if status.get("last_update_status") == "failed":
+                    missing_reason = status.get("last_error") or "最近一次更新失败，继续使用原有历史"
+                elif status.get("data_state") == "stale":
+                    missing_reason = "数据已过期，请检查上游更新"
+                elif status.get("data_state") == "insufficient":
+                    missing_reason = "历史覆盖不足部分长期统计窗口"
+                else:
+                    missing_reason = None
+            else:
+                missing_reason = status.get("last_error") or "尚未采集真实数据"
+            metric_status[metric] = {
+                "count": len(rows),
+                "frequency": status.get("frequency") or "unknown",
+                "first_date": status.get("first_date"),
+                "last_date": status.get("last_date"),
+                "source_name": status.get("source_name"),
+                "source_interface": status.get("source_interface"),
+                "data_state": status.get("data_state") or "no_data",
+                "missing_reason": missing_reason,
+            }
+        indices.append({"index": index_code, "name": INDICES[index_code], "metrics": metric_status})
+    return {
+        "indices": indices,
+        "summary": {"available": available, "total": len(COMPARISON_INDICES) * len(metrics)},
+    }
+
+
 def demo_rows(index_code, metric):
     """Deterministic artificial data; never persist or label as financial observations."""
     start = date(2018, 1, 5)
@@ -120,10 +161,10 @@ def update_akshare(index_code, metric):
     return update_history(index_code, metric, db_path=DB)
 
 
-def update_market(index_code, start_date="20160101", end_date=None):
+def update_market(index_code, start_date="20160101", end_date=None, provider_name="auto"):
     if index_code not in INDICES:
         raise ValueError("不支持的指数")
-    return update_index_history(index_code, db_path=DB, start_date=start_date, end_date=end_date)
+    return update_index_history(index_code, db_path=DB, start_date=start_date, end_date=end_date, provider_name=provider_name)
 
 
 def get_comparison_data(metric):
@@ -165,20 +206,54 @@ def get_comparison_data(metric):
     }
 
 
+def _decomposition_context(index_code, metric, asof=None):
+    valuation_rows, valuation_status = read_active_history(DB, index_code, metric)
+    market_rows, market_status = read_index_history(DB, index_code)
+    market_dates = {row["date"] for row in market_rows}
+    valuation_dates = {row["date"] for row in valuation_rows}
+    frequency = (valuation_status or {}).get("frequency", "unknown")
+    readiness = []
+    for candidate in ("1y", "3y", "5y", "10y"):
+        try:
+            result = analyze(
+                market_rows, valuation_rows, metric=metric, horizon=candidate,
+                index_code=index_code, asof=asof, frequency=frequency,
+            )
+            readiness.append({
+                "horizon": candidate, "status": "computable", "message": "可计算",
+                "matched_count": result["matched_count"], "coverage_ratio": result["coverage_ratio"],
+            })
+        except ValueError as exc:
+            message = str(exc)
+            if (market_status or {}).get("last_update_status") == "failed" and not market_rows:
+                status = "collection_failed"
+            elif "历史覆盖不足" in message or "起点" in message:
+                status = "history_insufficient"
+            else:
+                status = "same_date_insufficient"
+            readiness.append({"horizon": candidate, "status": status, "message": message})
+    return {
+        "valuation_rows": valuation_rows, "market_rows": market_rows,
+        "frequency": frequency, "valuation_status": valuation_status or {}, "market_status": market_status or {},
+        "common_date_count": len(market_dates.intersection(valuation_dates)), "readiness": readiness,
+    }
+
+
 def get_decomposition_data(index_code, metric, horizon, asof=None):
     if index_code not in INDICES or metric not in METRICS:
         raise ValueError("不支持的指数或指标")
-    valuation_rows, _ = read_active_history(DB, index_code, metric)
-    market_rows, _ = read_index_history(DB, index_code)
+    context = _decomposition_context(index_code, metric, asof)
     result = analyze(
-        market_rows,
-        valuation_rows,
+        context["market_rows"],
+        context["valuation_rows"],
         metric=metric,
         horizon=horizon,
         index_code=index_code,
         asof=asof,
+        frequency=context["frequency"],
     )
     result["name"] = INDICES[index_code]
+    result["context"] = {key: value for key, value in context.items() if not key.endswith("_rows")}
     return result
 
 
@@ -198,6 +273,8 @@ class Handler(BaseHTTPRequestHandler):
         params = parse_qs(p.query)
         if p.path == "/api/status":
             return response(self, 200, {"indices": INDICES, "metrics": METRICS, "history": get_status()})
+        if p.path == "/api/coverage":
+            return response(self, 200, get_coverage_data())
         if p.path == "/api/comparison":
             metric = params.get("metric", ["pe_ttm"])[0]
             if metric not in METRICS:
@@ -213,8 +290,10 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 return response(self, 200, get_decomposition_data(index_code, metric, horizon, asof))
             except ValueError as exc:
+                context = _decomposition_context(index_code, metric, asof)
                 return response(self, 422, {
                     "error": str(exc), "index": index_code, "metric": metric, "horizon": horizon,
+                    "context": {key: value for key, value in context.items() if not key.endswith("_rows")},
                 })
         if p.path == "/api/history":
             index_code = params.get("index", ["000300"])[0]
@@ -275,7 +354,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = update_akshare(index_code, metric)
                 return response(self, 200, result)
             if p.path == "/api/update-market":
-                result = update_market(index_code)
+                provider_name = params.get("provider", ["auto"])[0]
+                result = update_market(index_code, provider_name=provider_name)
                 return response(self, 200, result)
             return response(self, 404, {"error": "未知接口"})
         except Exception as e:
@@ -303,10 +383,18 @@ def main():
     update_market_parser.add_argument("--index", choices=list(INDICES) + ["all"], default="000300")
     update_market_parser.add_argument("--start", default="20160101")
     update_market_parser.add_argument("--end", default=None)
+    update_market_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="auto")
     diagnose_market = sub.add_parser("diagnose-market", help="联网诊断指数行情接口，不写入数据库")
     diagnose_market.add_argument("--index", choices=INDICES, default="000300")
     diagnose_market.add_argument("--start", default="20160101")
     diagnose_market.add_argument("--end", default=None)
+    diagnose_market.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="auto")
+    diagnose_market.add_argument("--cross-check", choices=PROVIDER_CHOICES, default=None)
+    import_market = sub.add_parser("import-market", help="从 CSV 受控导入指数收盘点位")
+    import_market.add_argument("--file", required=True)
+    import_market.add_argument("--index", choices=INDICES, default="000300")
+    import_market.add_argument("--source-name", required=True)
+    import_market.add_argument("--verification-notes", required=True)
     imp = sub.add_parser("import", help="从CSV导入历史数据")
     imp.add_argument("--file", required=True)
     imp.add_argument("--index", choices=INDICES, default="000300")
@@ -329,14 +417,17 @@ def main():
         codes = INDICES if args.index == "all" else [args.index]
         for code in codes:
             try:
-                print(INDICES[code], json.dumps(update_market(code, args.start, args.end), ensure_ascii=False))
+                print(INDICES[code], json.dumps(update_market(code, args.start, args.end, args.provider), ensure_ascii=False))
             except Exception as exc:
                 failed += 1
                 print("指数行情更新失败：", INDICES[code], exc, file=sys.stderr)
         return 1 if failed else 0
     elif args.command == "diagnose-market":
         try:
-            result = diagnose_index_source(args.index, start_date=args.start, end_date=args.end)
+            result = diagnose_index_source(
+                args.index, start_date=args.start, end_date=args.end,
+                provider_name=args.provider, cross_check_provider=args.cross_check,
+            )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
         except Exception as exc:
@@ -354,6 +445,24 @@ def main():
                 failed += 1
                 print(f"诊断失败：{INDICES[args.index]} {metric}: {e}", file=sys.stderr)
         return 1 if failed else 0
+    elif args.command == "import-market":
+        text = Path(args.file).read_text(encoding="utf-8-sig")
+        try:
+            reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
+            normal = {name.strip().lower(): name for name in (reader.fieldnames or []) if name}
+            date_column = next((normal.get(name) for name in ("date", "日期", "trade_date") if normal.get(name)), None)
+            close_column = next((normal.get(name) for name in ("close", "收盘", "value") if normal.get(name)), None)
+            if not date_column or not close_column:
+                raise ValueError("指数 CSV 需要 date/日期 与 close/收盘 列")
+            rows = [(row.get(date_column), row.get(close_column)) for row in reader]
+            result = import_index_history(
+                args.index, rows, args.source_name, args.verification_notes, db_path=DB,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        except Exception as exc:
+            print(f"指数 CSV 导入失败：{exc}", file=sys.stderr)
+            return 1
     elif args.command == "import":
         text = Path(args.file).read_text(encoding="utf-8-sig")
         try:

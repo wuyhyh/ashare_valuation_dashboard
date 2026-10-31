@@ -451,6 +451,7 @@ def _status_from_rows(connection, series, rows) -> dict:
         "missing_periods": quality.get("missing_periods", 0),
         "max_gap_days": quality.get("max_gap_days", 0),
         "shock_count": quality.get("shock_count", 0),
+        "cross_validation": quality.get("cross_validation"),
         "window_support": support, "warnings": quality.get("warnings", []),
         "is_stale": is_stale,
         "last_update_status": latest_run["status"] if latest_run else None,

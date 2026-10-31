@@ -13,8 +13,11 @@ from .history import (
 )
 from .market import (
     MARKET_METRIC,
+    PROVIDER_CHOICES,
+    PROVIDER_ORDER,
     diagnose_index_source,
     fetch_index_history,
+    import_index_history,
     read_index_history,
     update_index_history,
     validate_index_history,
@@ -31,8 +34,11 @@ __all__ = [
     "update_history",
     "validate_history",
     "MARKET_METRIC",
+    "PROVIDER_CHOICES",
+    "PROVIDER_ORDER",
     "diagnose_index_source",
     "fetch_index_history",
+    "import_index_history",
     "read_index_history",
     "update_index_history",
     "validate_index_history",
