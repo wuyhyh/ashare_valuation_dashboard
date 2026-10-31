@@ -15,6 +15,7 @@ from data_sources.history import (
     INDEX_NAMES,
     SOURCE_SPECS,
     fetch_history,
+    cross_validate_valuation_identity,
     read_active_history,
     update_history,
 )
@@ -66,6 +67,8 @@ class FourIndexValuationContractTests(unittest.TestCase):
                         SOURCE_SPECS[metric]["source_interface"],
                     )
                     self.assertEqual(fetched["methodology"], SOURCE_SPECS[metric]["methodology"])
+                    self.assertEqual(fetched["upstream_index_field"]["kind"], "numeric_level")
+                    self.assertEqual(fetched["upstream_index_field"]["sample_count"], len(DATES))
                     unique_series_ids.add(fetched["series_id"])
         self.assertEqual(len(unique_series_ids), 8)
 
@@ -142,6 +145,17 @@ class FourIndexValuationContractTests(unittest.TestCase):
     def test_unknown_index_not_accepted(self):
         with self.assertRaises(DataSourceError):
             fetch_history("399006", "pe_ttm", provider=synthetic_provider)
+
+    def test_numeric_index_level_can_be_cross_checked_against_close(self):
+        valuation_levels = [(day, 3500.0 + offset) for offset, day in enumerate(DATES)]
+        market_rows = [
+            {"date": day, "value": 3500.0 + offset, "source": "official"}
+            for offset, day in enumerate(DATES)
+        ]
+        result = cross_validate_valuation_identity(valuation_levels, market_rows)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["common_count"], len(DATES))
+        self.assertEqual(result["max_abs_difference_pct"], 0)
 
 
 if __name__ == "__main__":

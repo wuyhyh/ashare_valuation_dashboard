@@ -164,7 +164,8 @@ function renderCoverage(){
   if(!payload?.indices?.length){body.innerHTML='<tr><td colspan="4">覆盖状态暂不可用</td></tr>';$("coverage-summary").textContent="读取失败";return;}
   const metricCell=(item,metric)=>{const status=item.metrics?.[metric]||{},ready=status.count>0,reason=status.missing_reason;
     const detail=ready?`${localizedFrequency(status.frequency)} · 截至 ${escapeHtml(status.last_date||"—")}`:escapeHtml(reason||"尚未采集真实数据");
-    const title=escapeHtml([status.source_name,status.source_interface,reason].filter(Boolean).join(" · "));
+    const identity=status.source_identity?.status?`身份核验：${status.source_identity.status}`:null;
+    const title=escapeHtml([status.source_name,status.source_interface,identity,reason].filter(Boolean).join(" · "));
     return `<td class="coverage-cell ${ready?"ready":"missing"}" title="${title}"><strong>${ready?`${status.count} 条`:"无真实数据"}</strong><span class="${reason?"coverage-missing":""}">${detail}</span></td>`;};
   body.innerHTML=payload.indices.map(item=>`<tr><td>${escapeHtml(item.name)}<br><span>${escapeHtml(item.index)}</span></td>${metricCell(item,"pe_ttm")}${metricCell(item,"pb")}${metricCell(item,"index_close")}</tr>`).join("");
   const summary=payload.summary||{};$("coverage-summary").textContent=`${summary.available??0} / ${summary.total??12} 个真实序列`;

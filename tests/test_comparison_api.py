@@ -107,6 +107,27 @@ class ComparisonApiTests(unittest.TestCase):
         self.assertFalse(result["strict_comparison"])
         self.assertTrue(any("不同数据来源或估值口径" in warning for warning in result["warnings"]))
 
+    def test_failed_recorded_identity_check_disables_strict_ranking(self):
+        rows = [{"date": day, "value": value} for day, value in monthly_rows()]
+        status_by_code = {
+            code: {
+                "source_interface": SOURCE_SPECS["pe_ttm"]["source_interface"],
+                "methodology": SOURCE_SPECS["pe_ttm"]["methodology"],
+                "frequency": "monthly",
+                "source_identity": {"status": "warning" if code == "000852" else "passed"},
+            }
+            for code in app.COMPARISON_INDICES
+        }
+
+        def active_history(_db, index_code, _metric):
+            return rows, status_by_code[index_code]
+
+        with patch.object(app, "read_active_history", side_effect=active_history):
+            result = app.get_comparison_data("pe_ttm")
+        self.assertFalse(result["identity_consistent"])
+        self.assertFalse(result["strict_comparison"])
+        self.assertTrue(any("身份交叉核验" in warning for warning in result["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

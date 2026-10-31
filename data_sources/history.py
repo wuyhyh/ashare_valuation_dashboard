@@ -134,6 +134,10 @@ def fetch_history(
                     f"上游返回列结构已变化，缺少 {missing}；实际列为 {columns}。"
                     "已拒绝写库，避免混用静态、等权或中位数口径。"
                 )
+            upstream_index_values = [
+                record.get("指数") for record in records
+                if record.get("指数") is not None
+            ]
             return {
                 "index_code": index_code,
                 "metric": metric,
@@ -145,11 +149,27 @@ def fetch_history(
                 "source_interface": spec["source_interface"],
                 "methodology": spec["methodology"],
                 "series_id": f"legulegu_akshare_{index_code}_{metric}_{spec['series_suffix']}",
+                "upstream_index_field": {
+                    "column": "指数" if "指数" in columns else None,
+                    "kind": "numeric_level" if upstream_index_values else "absent",
+                    "sample_count": len(upstream_index_values),
+                    "latest_samples": upstream_index_values[-5:],
+                    "note": (
+                        "上游“指数”列为数值点位，不是指数名称或代码；"
+                        "不能单独证明指数身份，需与独立指数收盘点位交叉核验。"
+                        if upstream_index_values else "上游未返回可用于辅助核验的指数点位列。"
+                    ),
+                },
+                "upstream_index_rows": [
+                    (record.get("日期"), record.get("指数")) for record in records
+                    if record.get("指数") is not None
+                ],
             }
         except Exception as exc:
             last_error = exc
             if attempt < retries:
-                time.sleep(min(attempt * 1.5, 3))
+                delay = 10 if "429" in str(exc) else min(attempt * 1.5, 3)
+                time.sleep(delay)
     raise DataSourceError(f"数据源请求失败（已尝试 {retries} 次）：{last_error}") from last_error
 
 
@@ -291,6 +311,53 @@ def validate_history(
     }
 
 
+def cross_validate_valuation_identity(
+    upstream_index_rows: Iterable,
+    market_rows: Iterable,
+    *,
+    minimum_common_dates: int = 3,
+    tolerance_pct: float = .05,
+) -> dict:
+    """Use upstream numeric index levels only as supporting identity evidence."""
+    if not upstream_index_rows:
+        return {"status": "unavailable", "reason": "估值源未返回可核验的指数点位列"}
+    if not market_rows:
+        return {"status": "unavailable", "reason": "本地尚无独立指数收盘序列"}
+    upstream = {
+        row["date"]: row["value"]
+        for row in validate_history(
+            upstream_index_rows, maximum_value=10_000_000, shock_threshold=.2,
+        )["rows"]
+    }
+    market = {str(row["date"]): float(row["value"]) for row in market_rows}
+    common_dates = sorted(set(upstream).intersection(market))
+    samples = []
+    for observation_date in common_dates[-5:]:
+        valuation_level = upstream[observation_date]
+        market_close = market[observation_date]
+        difference_pct = 100 * (valuation_level - market_close) / market_close if market_close else None
+        samples.append({
+            "date": observation_date,
+            "valuation_index_level": valuation_level,
+            "market_close": market_close,
+            "difference_pct": round(difference_pct, 6) if difference_pct is not None else None,
+        })
+    if len(common_dates) < minimum_common_dates:
+        return {
+            "status": "unavailable", "common_count": len(common_dates), "samples": samples,
+            "reason": f"估值源与独立点位共同日期仅 {len(common_dates)} 个",
+        }
+    maximum_difference = max(
+        abs(item["difference_pct"]) for item in samples if item["difference_pct"] is not None
+    )
+    return {
+        "status": "passed" if maximum_difference <= tolerance_pct else "warning",
+        "common_count": len(common_dates), "sample_count": len(samples),
+        "max_abs_difference_pct": round(maximum_difference, 6), "samples": samples,
+        "note": "该核验仅证明乐咕数值“指数”列与独立指数收盘吻合；估值计算口径仍以字段和来源说明为准。",
+    }
+
+
 def _insert_run(connection, record: dict) -> None:
     connection.execute("""
         INSERT INTO update_runs(index_code,metric,series_id,started_at,finished_at,status,
@@ -372,6 +439,15 @@ def update_history(
     try:
         fetched = (fetcher or fetch_history)(index_code, metric)
         quality = validate_history(fetched["rows"])
+        if fetched.get("upstream_index_field"):
+            quality["upstream_index_field"] = fetched["upstream_index_field"]
+        if fetched.get("upstream_index_rows"):
+            market_rows, market_status = read_active_history(db_path, index_code, "index_close")
+            quality["source_identity"] = {
+                **cross_validate_valuation_identity(fetched["upstream_index_rows"], market_rows),
+                "market_source_interface": (market_status or {}).get("source_interface"),
+                "market_series_id": (market_status or {}).get("series_id"),
+            }
         return persist_history(db_path, fetched, quality, started_at)
     except Exception as exc:
         LOGGER.exception("valuation update failed: %s %s", index_code, metric)
@@ -463,6 +539,7 @@ def _status_from_rows(connection, series, rows) -> dict:
         "max_gap_days": quality.get("max_gap_days", 0),
         "shock_count": quality.get("shock_count", 0),
         "cross_validation": quality.get("cross_validation"),
+        "source_identity": quality.get("source_identity"),
         "window_support": support, "warnings": quality.get("warnings", []),
         "is_stale": is_stale,
         "last_update_status": latest_run["status"] if latest_run else None,
@@ -507,9 +584,14 @@ def get_update_status(
 def diagnose_source(index_code: str, metric: str) -> dict:
     fetched = fetch_history(index_code, metric)
     quality = validate_history(fetched["rows"])
+    rows = quality["rows"]
     return {
+        "index_code": index_code, "index_name": INDEX_NAMES[index_code],
         "akshare_version": fetched["source_version"], "columns": fetched["columns"],
         "fetched_count": fetched["fetched_count"], "expected_column": SOURCE_SPECS[metric]["value_column"],
         "source_interface": fetched["source_interface"], "methodology": fetched["methodology"],
+        "first_value": rows[0]["value"], "last_value": rows[-1]["value"],
+        "latest_samples": rows[-5:],
+        "upstream_index_field": fetched.get("upstream_index_field"),
         **{key: value for key, value in quality.items() if key != "rows"},
     }

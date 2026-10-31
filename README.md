@@ -1,8 +1,14 @@
-# A 股市场估值观察站（v0.7）
+# A 股市场估值观察站（v0.8）
 
-本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.7 保留既有界面、统计与数据库结构，修复真实指数日线采集，并让月频估值可以与日频指数点位进行严格同日归因。
+本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.8 在保留既有界面、统计和 SQLite v3 结构的前提下，完成上证50、沪深300、中证500、中证1000的真实 PE TTM、PB 与指数收盘验证，并启用严格同日、同来源、同口径、同频率的四指数历史百分位比较。
 
-## v0.7 数据可用性
+## v0.8 数据可用性
+
+- 四指数乐咕 PE 固定读取 `滚动市盈率`，PB 固定读取 `市净率`；不混入静态、等权或中位数列。
+- 四指数估值均为月频，最新共同日期为 `2026-10-30`；本机真实数据库的 PE/PB 比较均为 `strict_comparison=true`。
+- 乐咕数值型“指数”列不是代码或名称；系统将其与独立官方收盘按真实同日交叉核验，并把结果写入质量元数据。
+- 中证官方日频滚动 PE 与乐咕月频 PE 的频率、缺失结构和数值存在差异，继续独立隔离，不替换、不拼接。
+- 批量估值更新在请求之间主动节流，HTTP 429 使用较长退避；失败记录原因且不破坏原活动历史。
 
 - 指数行情提供方层支持 `sina`、`tencent`、`eastmoney_daily`、`eastmoney_legacy` 和按顺序有界回退的 `auto`。
 - 每个提供方拥有独立 `series_id`、来源接口与方法说明；不同来源不会静默拼接，ETF 价格不会替代指数点位。
@@ -45,7 +51,7 @@
 - 缺失指数不会用演示数据补入比较，也不会把不同日期伪装成同一时点。
 - 点击条形或表格行进入对应单指数分析，并保留指标和统计基准。
 
-当前真实 SQLite 仅有沪深300 PE/PB，因此真实页面会显示 `1/4` 个指数可比较，其余三个明确标记为缺失。要完成真实四指数排名，必须先按同一已验证来源和口径采集另外三个指数；本版本没有虚构这些数据。
+新 clone 不包含 SQLite 市场数据，因此会明确显示缺失且不会用演示序列参与比较。完成真实更新并通过质量核验后，页面可显示四指数严格比较；本项目不会提交或虚构数据库内容。
 
 ## 时间轴与统计
 
@@ -91,8 +97,10 @@ python -m playwright install chromium
 
 ```bash
 python app.py diagnose --index 000300 --metric all
-python app.py update --index 000300 --metric pe_ttm
-python app.py update --index 000300 --metric pb
+python app.py diagnose --index 000016 --metric all
+python app.py diagnose --index 000905 --metric all
+python app.py diagnose --index 000852 --metric all
+python app.py update --index all --metric all
 ```
 
 指数点位诊断与更新：
@@ -110,30 +118,35 @@ python app.py import-market --index 000300 --file index.csv \
 
 ## 数据覆盖与来源
 
-2026-10-31 本机联网验收数据库（SQLite 不随仓库分发）：
+2026-11-01 本机联网验收数据库，AKShare `1.20.18`（SQLite 不随仓库分发）：
 
 | 指数 | 指标 | 记录数 | 覆盖区间 | 频率 | 来源接口 |
 | --- | --- | ---: | --- | --- | --- |
 | 沪深300 | PE TTM | 259 | 2005-04-29 ～ 2026-10-30 | 月频 | `ak.stock_index_pe_lg` |
 | 沪深300 | PB | 259 | 2005-04-29 ～ 2026-10-30 | 月频 | `ak.stock_index_pb_lg` |
-| 沪深300 | 指数收盘 | 2628 | 2016-01-04 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_daily` 与 `ak.stock_zh_index_hist_csindex` 均已独立核验 |
-| 上证50 / 中证500 / 中证1000 | PE/PB | 0 | — | — | 尚无已验证真实序列 |
+| 沪深300 | 指数收盘 | 2628 | 2016-01-04 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_hist_csindex`，已与新浪核验 |
+| 上证50 | PE TTM / PB | 各 262 | 2005-01-31 ～ 2026-10-30 | 月频 | 乐咕对应 PE/PB 接口 |
+| 上证50 | 指数收盘 | 5300 | 2005-01-04 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_hist_csindex`，已与新浪核验 |
+| 中证500 | PE TTM / PB | 各 238 | 2007-01-31 ～ 2026-10-30 | 月频 | 乐咕对应 PE/PB 接口 |
+| 中证500 | 指数收盘 | 4817 | 2007-01-04 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_hist_csindex`，已与新浪核验 |
+| 中证1000 | PE TTM / PB | 各 145 | 2014-10-31 ～ 2026-10-30 | 月频 | 乐咕对应 PE/PB 接口 |
+| 中证1000 | 指数收盘 | 3118 | 2014-01-02 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_hist_csindex`，已与新浪核验 |
 
 PE 严格使用 `滚动市盈率`，不使用静态、等权或中位数列；PB 严格使用 `市净率`，不使用等权或中位数列。不同 `series_id` 不会拼接。
 
-2026-10-31 使用 AKShare `1.20.18` 实际验证：新浪 `ak.stock_zh_index_daily("sh000300")` 返回 6020 条（2002-01-04 至 2026-10-30），写库时按请求区间保存 2628 条；腾讯最近区间返回 17 条。中证官方接口同区间返回 2628 条，官方收盘与新浪共同日期最大绝对差 `0.005` 点。官方滚动 PE 与乐咕 PE 在共同月末最大相对差约 `25.22%`，因此官方 PE 只保留为独立研究候选，不自动激活。真实 SQLite 中乐咕 PE/PB 月频序列与指数日线的 1/3/5/10 年归因均可计算，覆盖率 100%。
+中证官方接口返回了可验证的指数代码和中文名称。上证50、中证500、中证1000官方收盘与新浪最近 5 个共同交易日的最大相对差均小于 `0.0002%`；乐咕“指数”数值与官方收盘最近 5 个共同月末完全一致。四指数真实 PE/PB 与指数日线的 10 年归因均为月频 `121/121` 个同日样本，覆盖率 100%。详细审计见 `docs/V08_DATA_AUDIT.md`。
 
 ## 数据安全
 
 - 沿用 SQLite schema v3：`series`、`observations`、`active_series`、`update_runs`。
-- v0.7 没有修改数据库结构，也没有覆盖、删除现有估值记录；更新前备份为 `valuation.sqlite3.backup-pre-v07-20261031`。
+- v0.8 没有修改数据库结构，也没有删除既有估值记录；真实导入前先创建本地备份，数据库及备份均由 `.gitignore` 排除。
 - 日期排序、去重、未来日期拒绝、空数据/列变化拒绝、缺口和突变标记逻辑保持不变。
 - 候选指数历史明显短于当前活动历史时拒绝切换并记录失败，避免短期回退覆盖完整十年序列。
 - 比较 API `/api/comparison` 只返回当前激活的真实 SQLite 序列，不调用 `demo_rows`。
 - 四指数共同日期通过真实日期集合交集计算。
-- 来源接口或 methodology 不一致时，`strict_comparison=false`，前端以警告色展示。
+- 来源接口、methodology、频率或已记录的身份核验不一致时，`strict_comparison=false`，前端以警告色展示。
 - 比较条形图仅绘制具有共同基准日、相同来源口径、足够样本且覆盖完整统计窗口的序列；被排除的序列仍保留在明细表并显示原因。
-- 图表标题区提供“复位缩放”，可恢复当前 3月～全部历史观察范围；静态资源版本已提升至 `v0.7`，避免浏览器继续使用旧缓存。
+- 图表标题区提供“复位缩放”，可恢复当前 3月～全部历史观察范围；静态资源版本已提升至 `v0.8`，避免浏览器继续使用旧缓存。
 
 ## 测试
 
@@ -168,6 +181,9 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 - 月频 1/3/5/10 年归因、75% 覆盖阈值、连续缺失 3 月拒绝和频率误分类拒绝。
 - 指数提供方回退、五日交叉核验、受控 CSV 导入、重复更新幂等和失败保留。
 - 归因模式 PE/PB、区间、指数、最大化和窄屏真实浏览器交互。
+- 四指数×PE/PB 采集字段、独立持久化和数值指数点位身份交叉核验。
+
+2026-11-01 本地结果：61 项 pytest 与 24 个子测试、36 项 unittest、Node 逻辑/语法、Python 编译和 Playwright 桌面/390px 回归全部通过。
 
 截图：
 
@@ -180,6 +196,8 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 - `artifacts/v0.7-monthly-attribution.png`
 - `artifacts/v0.7-monthly-attribution-mobile.png`
 - `artifacts/v0.7-live-monthly-attribution.png`（当前真实 SQLite：新浪点位 + 乐咕月频估值）
+- `artifacts/v0.8-real-pe-comparison.png`（本机四指数真实 PE，10 年统计基准）
+- `artifacts/v0.8-real-pb-comparison.png`（本机四指数真实 PB，10 年统计基准）
 
 ## 文件结构
 

@@ -17,6 +17,7 @@ import math
 import mimetypes
 from pathlib import Path
 import sys
+import time
 from urllib.parse import parse_qs, urlparse
 
 from data_sources import (
@@ -109,6 +110,7 @@ def get_coverage_data():
                 "last_date": status.get("last_date"),
                 "source_name": status.get("source_name"),
                 "source_interface": status.get("source_interface"),
+                "source_identity": status.get("source_identity"),
                 "data_state": status.get("data_state") or "no_data",
                 "missing_reason": missing_reason,
             }
@@ -190,6 +192,14 @@ def get_comparison_data(metric):
     methodologies = {item["status"].get("methodology") for item in series if item["available"] and item["status"]}
     frequencies = {item["status"].get("frequency") for item in series if item["available"] and item["status"]}
     frequency_consistent = len(frequencies) == 1 and next(iter(frequencies), None) not in (None, "unknown", "irregular")
+    identity_results = [
+        item["status"].get("source_identity") for item in series
+        if item["available"] and item["status"] and item["status"].get("source_identity") is not None
+    ]
+    identity_consistent = not identity_results or (
+        len(identity_results) == len(series)
+        and all(result.get("status") == "passed" for result in identity_results)
+    )
     missing = [item["name"] for item in series if not item["available"]]
     warnings = []
     if missing:
@@ -200,12 +210,15 @@ def get_comparison_data(metric):
         warnings.append("存在不同数据来源或估值口径，比较结果不可直接排名")
     if all_available and not frequency_consistent:
         warnings.append("指数估值采样频率不一致或尚未核验，历史分位数不可作为严格同频率比较")
+    if all_available and not identity_consistent:
+        warnings.append("至少一个估值序列尚未通过其数值指数点位与独立收盘序列的身份交叉核验")
     return {
         "metric": metric,
         "common_date": common_date,
-        "strict_comparison": bool(all_available and common_date and len(interfaces) == 1 and len(methodologies) == 1 and frequency_consistent),
+        "strict_comparison": bool(all_available and common_date and len(interfaces) == 1 and len(methodologies) == 1 and frequency_consistent and identity_consistent),
         "source_consistent": len(interfaces) <= 1 and len(methodologies) <= 1,
         "frequency_consistent": frequency_consistent,
+        "identity_consistent": identity_consistent,
         "warnings": warnings,
         "series": series,
     }
@@ -382,7 +395,7 @@ def main():
     update.add_argument("--index", choices=list(INDICES) + ["all"], default="000300")
     update.add_argument("--metric", choices=list(METRICS) + ["all"], default="pe_ttm")
     diagnose = sub.add_parser("diagnose", help="联网诊断 AKShare 返回结构，不写入数据库")
-    diagnose.add_argument("--index", choices=["000300"], default="000300")
+    diagnose.add_argument("--index", choices=INDICES, default="000300")
     diagnose.add_argument("--metric", choices=list(METRICS) + ["all"], default="all")
     update_market_parser = sub.add_parser("update-market", help="拉取指数自身的日线收盘点位（需akshare）")
     update_market_parser.add_argument("--index", choices=list(INDICES) + ["all"], default="000300")
@@ -416,6 +429,8 @@ def main():
                 except Exception as e:
                     failed += 1
                     print("更新失败：", INDICES[code], metric, e, file=sys.stderr)
+                if len(codes) * len(metrics) > 1:
+                    time.sleep(2)
         return 1 if failed else 0
     elif args.command == "update-market":
         failed = 0
