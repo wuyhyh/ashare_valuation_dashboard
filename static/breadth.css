@@ -1,0 +1,30 @@
+/* v0.9 market breadth */
+.breadth-nav{text-decoration:none}.breadth-nav:visited{color:inherit}.breadth-nav.active{color:#fff}
+.breadth-notice{border:1px solid #ecdcb9;background:#fffaef;color:#83602c;font-size:12px;padding:13px 16px;border-radius:10px;margin-bottom:18px;line-height:1.65}
+.breadth-notice.subtle{background:#fff;border-color:#e1e7f0;color:#61738b}
+.breadth-panel{background:#fff;border:1px solid #e4eaf2;border-radius:13px;padding:24px;margin-bottom:16px;min-width:0}
+.breadth-controls{display:flex;align-items:end;gap:15px;flex-wrap:wrap;margin-bottom:25px}
+.breadth-controls label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:#64768d}
+.breadth-controls select{padding:9px 12px;border-radius:8px;border:1px solid #d7deea;background:#fff;color:#24334d}
+.breadth-controls .breadth-check{flex-direction:row;align-items:center;gap:8px;padding-bottom:11px}
+.breadth-controls button{margin-left:auto}
+.breadth-empty{background:#f6f8fc;border:1px dashed #b8c5d6;border-radius:10px;padding:27px;color:#566e88;line-height:2;font-size:14px}
+.breadth-empty code{background:#e8eff9;padding:2px 5px;border-radius:4px}
+.breadth-meta{display:flex;gap:13px;flex-wrap:wrap;color:#728299;font-size:11px;margin-bottom:17px}
+.breadth-meta span{border-right:1px solid #d7dfea;padding-right:13px}.breadth-meta span:last-child{border:0}
+.breadth-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:30px}
+.breadth-kpis div{background:#f6f9fd;border:1px solid #e7edf5;border-radius:11px;padding:15px}
+.breadth-kpis small{display:block;color:#728299;font-size:11px;margin-bottom:8px}
+.breadth-kpis strong{font-size:27px;color:#243c5a;font-variant-numeric:tabular-nums}
+.breadth-panel h2{font-size:14px;margin-bottom:13px}
+.breadth-bar{height:21px;background:#e7edf3;border-radius:5px;overflow:hidden;display:flex;min-width:0}
+.breadth-bar span{height:100%;transition:width .25s ease}
+.breadth-bar .b-up{background:#e0746b}.breadth-bar .b-flat{background:#e2b75e}.breadth-bar .b-down{background:#4ba78d}
+.breadth-legend{display:flex;justify-content:space-between;color:#708198;font-size:11px;margin-top:8px}
+.breadth-extra{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#e7ecf3;border:1px solid #e7ecf3;border-radius:9px;overflow:hidden;margin-top:26px}
+.breadth-extra>div{background:#fff;padding:14px}
+.breadth-extra span{display:block;color:#8090a5;font-size:10px;margin-bottom:7px}
+.breadth-extra b{font-size:16px;font-variant-numeric:tabular-nums;color:#354a65}
+.breadth-foot{font-size:11px;color:#718098;line-height:1.8}
+@media(max-width:950px){.breadth-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.breadth-extra{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.breadth-panel{padding:12px}.breadth-kpis strong{font-size:22px}.breadth-controls button{margin-left:0}.breadth-extra b{font-size:13px}}
