@@ -33,7 +33,7 @@ def synthetic_provider(symbol: str, metric: str, _timeout: int) -> dict:
         "version": "offline-test",
         "columns": ["日期", "指数", spec["value_column"]],
         "records": [
-            {"日期": day, "指数": symbol, spec["value_column"]: 12.0 + i}
+            {"日期": day, "指数": 3500.0 + i, spec["value_column"]: 12.0 + i}
             for i, day in enumerate(DATES)
         ],
     }
