@@ -39,6 +39,7 @@ from data_sources import (
 from data_sources.storage import connect as storage_connect
 from decomposition import analyze
 from breadth import DEFAULT_DB as BREADTH_DB, latest_report as breadth_latest_report, update_from_akshare as breadth_update_from_akshare
+from asset_watch import DEFAULT_DB as ASSETS_DB, ASSETS as WATCH_ASSETS, overview as asset_overview, report as asset_report, update_history as asset_update_history
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -401,6 +402,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         p = urlparse(self.path)
         params = parse_qs(p.query)
+        if p.path == "/api/assets":
+            asset = params.get("asset", [None])[0]
+            if asset is not None and asset not in WATCH_ASSETS:
+                return response(self, 400, {"error": "未知观察对象"})
+            return response(self, 200, asset_report(asset, ASSETS_DB) if asset else asset_overview(ASSETS_DB))
         if p.path == "/api/breadth":
             return response(self, 200, breadth_latest_report(BREADTH_DB))
         if p.path == "/api/runtime":
@@ -507,6 +513,9 @@ def main():
     serve = sub.add_parser("serve", help="启动本地页面（默认）")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--host", default="127.0.0.1")
+    sub.add_parser("assets-doctor", help="无需联网：检查科创50、创业板50和黄金ETF本地日线")
+    assets_update = sub.add_parser("assets-update", help="显式联网更新科创50、创业板50和黄金ETF价格")
+    assets_update.add_argument("--asset", choices=[*WATCH_ASSETS, "all"], default="all")
     sub.add_parser("breadth-doctor", help="无需联网：查看最新沪深主板真实市场宽度快照")
     sub.add_parser("breadth-update", help="主动联网采集沪深主板A股行情快照（不自动回填交易日）")
     doctor = sub.add_parser("doctor", help="无需联网：查看当前源码、SQLite 路径与12条真实数据的覆盖情况")
@@ -541,7 +550,24 @@ def main():
     imp.add_argument("--index", choices=INDICES, default="000300")
     imp.add_argument("--metric", choices=METRICS, default="pe_ttm")
     args = parser.parse_args()
-    if args.command == "breadth-doctor":
+    if args.command == "assets-doctor":
+        print(json.dumps(asset_overview(ASSETS_DB), ensure_ascii=False, indent=2))
+        return 0
+    elif args.command == "assets-update":
+        result = []
+        failed = 0
+        for asset_id in WATCH_ASSETS if args.asset == "all" else [args.asset]:
+            try:
+                info = asset_update_history(asset_id, db_path=ASSETS_DB)
+                result.append({"asset": asset_id, "status": "success", "detail": info})
+                print(f"已更新 {WATCH_ASSETS[asset_id]['name']}，截至 {info['last_date']}", flush=True)
+            except Exception as exc:
+                failed += 1
+                result.append({"asset": asset_id, "status": "failed", "reason": str(exc)})
+                print(f"资产价格更新失败：{asset_id} {exc}", file=sys.stderr, flush=True)
+        print(json.dumps({"results": result}, ensure_ascii=False, indent=2))
+        return 1 if failed else 0
+    elif args.command == "breadth-doctor":
         print(json.dumps(breadth_latest_report(BREADTH_DB), ensure_ascii=False, indent=2))
         return 0
     elif args.command == "breadth-update":
