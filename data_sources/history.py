@@ -85,15 +85,21 @@ def _call_akshare(index_name: str, metric: str, timeout_seconds: int) -> dict:
     result_queue = context.Queue(maxsize=1)
     process = context.Process(target=_akshare_worker, args=(index_name, metric, result_queue), daemon=True)
     process.start()
-    process.join(timeout_seconds)
-    if process.is_alive():
-        process.terminate()
-        process.join(5)
-        raise TimeoutError(f"AKShare 请求超过 {timeout_seconds} 秒，已终止本次采集")
     try:
-        payload = result_queue.get(timeout=2)
-    except queue.Empty as exc:
-        raise DataSourceError(f"AKShare 子进程异常退出（exitcode={process.exitcode}）") from exc
+        # Drain the pipe BEFORE joining. Joining first can deadlock when an
+        # index has thousands of rows and the Queue feeder is still flushing.
+        try:
+            payload = result_queue.get(timeout=timeout_seconds)
+        except queue.Empty as exc:
+            if process.is_alive():
+                raise TimeoutError(f"AKShare 请求超过 {timeout_seconds} 秒，已终止本次采集") from exc
+            raise DataSourceError(f"AKShare 子进程异常退出（exitcode={process.exitcode}）") from exc
+    finally:
+        process.join(timeout=3)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+        result_queue.close()
     if not payload.get("ok"):
         raise DataSourceError(f"{payload.get('error_type', 'Error')}: {payload.get('error', '未知错误')}")
     return payload
