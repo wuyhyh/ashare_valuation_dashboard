@@ -40,6 +40,11 @@
               <div class="toolbar-row range-toolbar" id="display-window-row"><span class="toolbar-label">图表范围</span><div class="segments scroll-segments" id="window"></div></div>
             </div>
 
+            <section class="data-coverage-panel" id="data-coverage-panel" aria-label="四大指数真实数据覆盖状态">
+              <div class="coverage-heading"><span>四大指数数据覆盖</span><strong id="coverage-summary">读取中</strong></div>
+              <div class="coverage-scroll"><table class="coverage-table"><thead><tr><th>指数</th><th>PE TTM</th><th>PB</th><th>指数点位</th></tr></thead><tbody id="coverage-body"></tbody></table></div>
+            </section>
+
             <div id="single-view">
               <div id="chart" aria-label="指数点位与历史估值共享时间轴图"></div>
               <div class="chart-foot"><span>深色线：指数收盘　蓝线：估值　<span class="yellow">━</span> 均值　<span class="red">┄</span> +1σ　<span class="green">┄</span> −1σ</span><span>悬停、框选缩放、平移、双击复位</span></div>

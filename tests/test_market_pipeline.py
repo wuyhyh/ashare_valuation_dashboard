@@ -87,6 +87,26 @@ class MarketPipelineTests(unittest.TestCase):
         self.assertEqual(status["data_state"], "update_failed")
         self.assertIn("simulated market timeout", status["last_error"])
 
+    def test_short_fallback_cannot_replace_complete_active_history(self):
+        complete = daily_rows(count=2628)
+        update_index_history("000300", db_path=self.db, fetcher=lambda *_: fetched(complete))
+        short = daily_rows(start=date(2026, 10, 1), count=17, base=3900)
+        candidate = {
+            **fetched(short),
+            "series_id": "tencent_akshare_000300_daily_close_v1",
+            "source_name": "腾讯财经 / AKShare",
+            "source_interface": "ak.stock_zh_index_daily_tx",
+        }
+
+        with self.assertRaisesRegex(DataSourceError, "候选行情历史不足"):
+            update_index_history("000300", db_path=self.db, fetcher=lambda *_: candidate)
+
+        stored, status = read_index_history(self.db, "000300")
+        self.assertEqual(len(stored), 2628)
+        self.assertEqual(status["series_id"], "test_000300_daily_close_v1")
+        self.assertEqual(status["data_state"], "update_failed")
+        self.assertIn("已保留原活动序列", status["last_error"])
+
     def test_market_column_change_is_rejected(self):
         provider = lambda *_: {
             "version": "test",
@@ -133,6 +153,23 @@ class MarketPipelineTests(unittest.TestCase):
             result = fetch_index_history("000300", provider_name="auto")
         self.assertEqual(calls, ["sina", "tencent"])
         self.assertEqual(result["provider"], "tencent")
+
+    def test_official_provider_is_explicit_and_not_in_auto_order(self):
+        from unittest.mock import patch
+        from data_sources.market import PROVIDER_CHOICES, PROVIDER_ORDER
+        self.assertIn("csindex_official", PROVIDER_CHOICES)
+        self.assertNotIn("csindex_official", PROVIDER_ORDER)
+        official = {
+            "version": "test", "columns": ["日期", "指数代码", "收盘"],
+            "records": [{"日期": "2026-01-05", "指数代码": "000300", "收盘": 4012.5}],
+        }
+        with patch("data_sources.csindex.fetch_official", return_value=official):
+            result = fetch_index_history(
+                "000300", start_date="20260101", end_date="20260131",
+                provider_name="csindex_official", retries=1,
+            )
+        self.assertEqual(result["rows"], [("2026-01-05", 4012.5)])
+        self.assertEqual(result["series_id"], "csindex_official_akshare_000300_daily_close_v1")
 
     def test_controlled_csv_import_keeps_declared_source_separate(self):
         rows = daily_rows(count=30)

@@ -25,6 +25,7 @@ from data_sources import (
     get_update_status,
     import_history,
     import_index_history,
+    PROVIDER_CHOICES,
     PROVIDER_ORDER,
     read_active_history,
     read_index_history,
@@ -78,6 +79,44 @@ def get_rows(index_code, metric):
 
 def get_status():
     return get_update_status(db_path=DB)
+
+
+def get_coverage_data():
+    metrics = ("pe_ttm", "pb", "index_close")
+    indices = []
+    available = 0
+    for index_code in COMPARISON_INDICES:
+        metric_status = {}
+        for metric in metrics:
+            rows, status = read_active_history(DB, index_code, metric)
+            status = status or {}
+            if rows:
+                available += 1
+                if status.get("last_update_status") == "failed":
+                    missing_reason = status.get("last_error") or "最近一次更新失败，继续使用原有历史"
+                elif status.get("data_state") == "stale":
+                    missing_reason = "数据已过期，请检查上游更新"
+                elif status.get("data_state") == "insufficient":
+                    missing_reason = "历史覆盖不足部分长期统计窗口"
+                else:
+                    missing_reason = None
+            else:
+                missing_reason = status.get("last_error") or "尚未采集真实数据"
+            metric_status[metric] = {
+                "count": len(rows),
+                "frequency": status.get("frequency") or "unknown",
+                "first_date": status.get("first_date"),
+                "last_date": status.get("last_date"),
+                "source_name": status.get("source_name"),
+                "source_interface": status.get("source_interface"),
+                "data_state": status.get("data_state") or "no_data",
+                "missing_reason": missing_reason,
+            }
+        indices.append({"index": index_code, "name": INDICES[index_code], "metrics": metric_status})
+    return {
+        "indices": indices,
+        "summary": {"available": available, "total": len(COMPARISON_INDICES) * len(metrics)},
+    }
 
 
 def demo_rows(index_code, metric):
@@ -234,6 +273,8 @@ class Handler(BaseHTTPRequestHandler):
         params = parse_qs(p.query)
         if p.path == "/api/status":
             return response(self, 200, {"indices": INDICES, "metrics": METRICS, "history": get_status()})
+        if p.path == "/api/coverage":
+            return response(self, 200, get_coverage_data())
         if p.path == "/api/comparison":
             metric = params.get("metric", ["pe_ttm"])[0]
             if metric not in METRICS:
@@ -342,13 +383,13 @@ def main():
     update_market_parser.add_argument("--index", choices=list(INDICES) + ["all"], default="000300")
     update_market_parser.add_argument("--start", default="20160101")
     update_market_parser.add_argument("--end", default=None)
-    update_market_parser.add_argument("--provider", choices=["auto", *PROVIDER_ORDER], default="auto")
+    update_market_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="auto")
     diagnose_market = sub.add_parser("diagnose-market", help="联网诊断指数行情接口，不写入数据库")
     diagnose_market.add_argument("--index", choices=INDICES, default="000300")
     diagnose_market.add_argument("--start", default="20160101")
     diagnose_market.add_argument("--end", default=None)
-    diagnose_market.add_argument("--provider", choices=["auto", *PROVIDER_ORDER], default="auto")
-    diagnose_market.add_argument("--cross-check", choices=PROVIDER_ORDER, default=None)
+    diagnose_market.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="auto")
+    diagnose_market.add_argument("--cross-check", choices=PROVIDER_CHOICES, default=None)
     import_market = sub.add_parser("import-market", help="从 CSV 受控导入指数收盘点位")
     import_market.add_argument("--file", required=True)
     import_market.add_argument("--index", choices=INDICES, default="000300")

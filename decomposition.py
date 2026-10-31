@@ -75,11 +75,14 @@ def _frequency_quality(dates, frequency, start, end):
 
     if frequency != "monthly":
         raise ValueError(f"归因暂仅支持日频或月频估值；当前频率为 {frequency or 'unknown'}")
+    month_keys = [(date.fromisoformat(value).year, date.fromisoformat(value).month) for value in dates]
+    if len(set(month_keys)) != len(month_keys):
+        raise ValueError("月频估值在同一自然月存在多个同日匹配观测；已拒绝用重复月份虚增覆盖率")
     month_steps = [_month_delta(previous, current) for previous, current in zip(dates, dates[1:])]
     if month_steps and median(month_steps) < 1:
         raise ValueError("估值序列声明为月频，但实际观测过密；请核对频率元数据")
     expected_periods = _month_delta(start, end) + 1
-    coverage_ratio = min(1.0, len(dates) / max(expected_periods, 1))
+    coverage_ratio = min(1.0, len(set(month_keys)) / max(expected_periods, 1))
     max_missing = max((max(step - 1, 0) for step in month_steps), default=0)
     if coverage_ratio < .75:
         raise ValueError(f"月频同日覆盖率仅 {coverage_ratio:.1%}（至少需要 75%）")

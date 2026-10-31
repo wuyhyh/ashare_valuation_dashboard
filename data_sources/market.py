@@ -18,6 +18,7 @@ INDEX_NAMES = {"000300": "沪深300", "000905": "中证500", "000852": "中证10
 MARKET_METRIC = "index_close"
 METHODOLOGY = "指数本身的不复权日线收盘点位；不是 ETF 价格，不补齐非交易日，不进行前向填充或插值。"
 PROVIDER_ORDER = ("sina", "tencent", "eastmoney_daily", "eastmoney_legacy")
+PROVIDER_CHOICES = (*PROVIDER_ORDER, "csindex_official")
 PROVIDER_SPECS = {
     "sina": {
         "source_name": "新浪财经 / AKShare", "source_interface": "ak.stock_zh_index_daily",
@@ -38,6 +39,11 @@ PROVIDER_SPECS = {
     "eastmoney_legacy": {
         "source_name": "东方财富 / AKShare", "source_interface": "ak.index_zh_a_hist",
         "methodology": METHODOLOGY + " 东方财富 A 股指数历史接口。",
+        "symbol": lambda code: code, "date_column": "日期", "close_column": "收盘",
+    },
+    "csindex_official": {
+        "source_name": "中证指数有限公司 / AKShare", "source_interface": "ak.stock_zh_index_hist_csindex",
+        "methodology": METHODOLOGY + " 中证指数官网披露的指数收盘点位；作为显式可选来源，不参与 auto 回退。",
         "symbol": lambda code: code, "date_column": "日期", "close_column": "收盘",
     },
 }
@@ -142,7 +148,7 @@ def fetch_index_history(
 ) -> dict:
     if index_code not in INDEX_NAMES:
         raise DataSourceError(f"不支持的指数代码: {index_code}")
-    if provider_name not in ("auto", *PROVIDER_ORDER):
+    if provider_name not in ("auto", *PROVIDER_CHOICES):
         raise DataSourceError(f"不支持的指数行情数据源: {provider_name}")
     end_date = end_date or date.today().strftime("%Y%m%d")
     if provider is not None:
@@ -162,7 +168,18 @@ def fetch_index_history(
         attempts = 1 if provider_name == "auto" else retries
         for attempt in range(1, attempts + 1):
             try:
-                payload = _call_provider(candidate, index_code, start_date, end_date, timeout_seconds)
+                if candidate == "csindex_official":
+                    from .csindex import fetch_official
+                    official = fetch_official(
+                        index_code, start_date=start_date, end_date=end_date,
+                        timeout=timeout_seconds,
+                    )
+                    payload = {
+                        "version": official["version"], "columns": official["columns"],
+                        "records": official["records"],
+                    }
+                else:
+                    payload = _call_provider(candidate, index_code, start_date, end_date, timeout_seconds)
                 return _normalize_payload(index_code, candidate, payload, start_date, end_date)
             except Exception as exc:
                 errors.append(f"{candidate}: {exc}")
@@ -204,6 +221,28 @@ def _independent_provider(provider_name: str) -> str | None:
     return next((candidate for candidate in PROVIDER_ORDER if candidate != provider_name), None)
 
 
+def _ensure_candidate_preserves_history(previous_rows: list[dict], quality: dict) -> None:
+    if not previous_rows:
+        return
+    previous_first = date.fromisoformat(previous_rows[0]["date"])
+    previous_last = date.fromisoformat(previous_rows[-1]["date"])
+    candidate_first = date.fromisoformat(quality["first_date"])
+    candidate_last = date.fromisoformat(quality["last_date"])
+    previous_span = max((previous_last - previous_first).days, 1)
+    candidate_span = max((candidate_last - candidate_first).days, 0)
+    reasons = []
+    if candidate_first > previous_first + date.resolution * 45:
+        reasons.append(f"候选起始日 {candidate_first} 晚于原历史 {previous_first}")
+    if candidate_last < previous_last - date.resolution * 15:
+        reasons.append(f"候选截止日 {candidate_last} 早于原历史 {previous_last}")
+    if candidate_span < previous_span * .8:
+        reasons.append(f"候选覆盖跨度仅为原历史的 {candidate_span / previous_span:.1%}")
+    if quality["valid_count"] < len(previous_rows) * .5:
+        reasons.append(f"候选记录仅 {quality['valid_count']} 条，原历史为 {len(previous_rows)} 条")
+    if reasons:
+        raise DataSourceError("候选行情历史不足，已保留原活动序列：" + "；".join(reasons))
+
+
 def update_index_history(
     index_code: str, *, db_path: str | Path = DEFAULT_DB, start_date: str = "20160101",
     end_date: str | None = None, provider_name: str = "auto", fetcher: Callable[..., dict] | None = None,
@@ -215,6 +254,12 @@ def update_index_history(
             index_code, start_date=start_date, end_date=end_date, provider_name=provider_name,
         )
         quality = validate_index_history(fetched["rows"])
+        series_changed = bool(
+            previous_rows and previous_status
+            and previous_status.get("series_id") != fetched.get("series_id")
+        )
+        if series_changed:
+            _ensure_candidate_preserves_history(previous_rows, quality)
         source_changed = bool(previous_rows and previous_status and previous_status.get("source_interface") != fetched.get("source_interface"))
         if not fetcher and (not previous_rows or source_changed):
             secondary_name = _independent_provider(fetched.get("provider", "sina"))

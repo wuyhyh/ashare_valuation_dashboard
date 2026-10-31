@@ -152,6 +152,16 @@ def test_monthly_rejects_three_consecutive_missing_months():
         analyze(prices, multiples, horizon="3y", frequency="monthly")
 
 
+def test_monthly_rejects_multiple_observations_in_one_month():
+    prices, multiples = monthly_fixture()
+    original = multiples[-8]
+    duplicate_date = (date.fromisoformat(original["date"]) - timedelta(days=7)).isoformat()
+    multiples.append({**original, "date": duplicate_date})
+    multiples.sort(key=lambda row: row["date"])
+    with pytest.raises(ValueError, match="同一自然月"):
+        analyze(prices, multiples, horizon="3y", frequency="monthly")
+
+
 def test_monthly_rejects_insufficient_history():
     prices, multiples = monthly_fixture()
     multiples = multiples[-20:]

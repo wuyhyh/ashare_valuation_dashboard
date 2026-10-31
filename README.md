@@ -100,6 +100,8 @@ python app.py update --index 000300 --metric pb
 ```bash
 python app.py diagnose-market --index 000300 --provider sina --cross-check tencent --start 20261001 --end 20261030
 python app.py update-market --index 000300 --provider auto --start 20160101 --end 20261030
+python app.py diagnose-market --index 000300 --provider csindex_official --cross-check sina --start 20160101 --end 20261030
+python app.py update-market --index 000300 --provider csindex_official --start 20160101 --end 20261030
 python app.py import-market --index 000300 --file index.csv \
   --source-name "文件供应方" --verification-notes "已核对指数代码、日期与收盘字段"
 ```
@@ -108,24 +110,25 @@ python app.py import-market --index 000300 --file index.csv \
 
 ## 数据覆盖与来源
 
-2026-10-31 当前真实数据库：
+2026-10-31 本机联网验收数据库（SQLite 不随仓库分发）：
 
 | 指数 | 指标 | 记录数 | 覆盖区间 | 频率 | 来源接口 |
 | --- | --- | ---: | --- | --- | --- |
 | 沪深300 | PE TTM | 259 | 2005-04-29 ～ 2026-10-30 | 月频 | `ak.stock_index_pe_lg` |
 | 沪深300 | PB | 259 | 2005-04-29 ～ 2026-10-30 | 月频 | `ak.stock_index_pb_lg` |
-| 沪深300 | 指数收盘 | 2628 | 2016-01-04 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_daily` |
+| 沪深300 | 指数收盘 | 2628 | 2016-01-04 ～ 2026-10-30 | 日频 | `ak.stock_zh_index_daily` 与 `ak.stock_zh_index_hist_csindex` 均已独立核验 |
 | 上证50 / 中证500 / 中证1000 | PE/PB | 0 | — | — | 尚无已验证真实序列 |
 
 PE 严格使用 `滚动市盈率`，不使用静态、等权或中位数列；PB 严格使用 `市净率`，不使用等权或中位数列。不同 `series_id` 不会拼接。
 
-2026-10-31 使用 AKShare `1.20.18` 实际验证：新浪 `ak.stock_zh_index_daily("sh000300")` 返回 6020 条（2002-01-04 至 2026-10-30），写库时按请求区间保存 2628 条；腾讯最近区间返回 17 条。最近 5 个共同交易日收盘最大绝对差异为 `0.000073%`，交叉核验通过。东方财富两个候选接口本次未被标记为已验证可用。真实 SQLite 中 PE/PB 月频序列与指数日线的 1/3/5/10 年归因均可计算，覆盖率 100%。
+2026-10-31 使用 AKShare `1.20.18` 实际验证：新浪 `ak.stock_zh_index_daily("sh000300")` 返回 6020 条（2002-01-04 至 2026-10-30），写库时按请求区间保存 2628 条；腾讯最近区间返回 17 条。中证官方接口同区间返回 2628 条，官方收盘与新浪共同日期最大绝对差 `0.005` 点。官方滚动 PE 与乐咕 PE 在共同月末最大相对差约 `25.22%`，因此官方 PE 只保留为独立研究候选，不自动激活。真实 SQLite 中乐咕 PE/PB 月频序列与指数日线的 1/3/5/10 年归因均可计算，覆盖率 100%。
 
 ## 数据安全
 
 - 沿用 SQLite schema v3：`series`、`observations`、`active_series`、`update_runs`。
 - v0.7 没有修改数据库结构，也没有覆盖、删除现有估值记录；更新前备份为 `valuation.sqlite3.backup-pre-v07-20261031`。
 - 日期排序、去重、未来日期拒绝、空数据/列变化拒绝、缺口和突变标记逻辑保持不变。
+- 候选指数历史明显短于当前活动历史时拒绝切换并记录失败，避免短期回退覆盖完整十年序列。
 - 比较 API `/api/comparison` 只返回当前激活的真实 SQLite 序列，不调用 `demo_rows`。
 - 四指数共同日期通过真实日期集合交集计算。
 - 来源接口或 methodology 不一致时，`strict_comparison=false`，前端以警告色展示。
