@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>跨资产观察 · VALUE LAB</title>
+  <link rel="stylesheet" href="/styles.css?v=0.8.1">
+  <link rel="stylesheet" href="/asset-watch.css?v=0.9">
+</head>
+<body>
+<div class="shell">
+ <aside class="sidebar">
+  <div class="brand"><div class="brand-symbol">∿</div><div><strong>VALUE<span>LAB</span></strong><small>市场估值观察站</small></div></div>
+  <div class="side-label">研究工作台</div>
+  <a href="/" class="menu-item"><span>◫</span> 市场估值</a>
+  <a href="/breadth.html" class="menu-item"><span>▤</span> 市场宽度</a>
+  <a href="/assets.html" class="menu-item active" aria-current="page"><span>↗</span> 跨资产观察</a>
+  <div class="sidebar-bottom"><div class="small-dot"></div><span>只在本地运行 · 数据自主管理</span></div>
+ </aside>
+ <main class="main">
+  <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>跨资产观察</b></div><div class="header-right"><span class="tag">v0.9 WIP</span></div></header>
+  <div class="content">
+   <div class="page-header"><div><div class="eyebrow">CROSS ASSET RESEARCH</div><h1>科创成长与黄金观察</h1><p>三类独立价格序列，分别观察指数点位与黄金ETF场内交易价格。</p></div></div>
+   <div class="asset-notice">科创50、创业板50是指数点位；黄金采用华安黄金ETF（518880）的场内<strong>非复权价格</strong>。不与黄金现货、ETF净值、复权总收益或 PE/PB 混淆。</div>
+   <section class="asset-panel">
+    <div class="asset-head">
+     <h2 id="asset-title">真实历史行情</h2>
+     <span id="asset-status">正在检查本机数据…</span>
+    </div>
+    <div class="asset-controls">
+     <div class="asset-tabs" id="asset-tabs">
+      <button data-asset="000688">科创50</button>
+      <button data-asset="399673">创业板50</button>
+      <button data-asset="518880">黄金ETF 518880</button>
+     </div>
+     <div class="asset-windows" id="asset-windows" aria-label="可视时间范围">
+      <button data-window="3m">3个月</button><button data-window="6m">6个月</button>
+      <button data-window="1y">1年</button><button data-window="3y">3年</button>
+      <button data-window="5y">5年</button><button data-window="8y">8年</button>
+      <button data-window="10y">10年</button><button data-window="all">全部</button>
+     </div>
+    </div>
+    <div id="asset-empty" class="asset-empty" hidden></div>
+    <div id="asset-chart" aria-label="真实历史价格曲线"></div>
+    <div class="asset-stat-grid" id="asset-stats" hidden>
+     <div><span>最新收盘</span><strong id="asset-close">—</strong></div>
+     <div><span>区间涨跌</span><strong id="asset-return">—</strong></div>
+     <div><span>区间最大回撤</span><strong id="asset-drawdown">—</strong></div>
+     <div><span>可用样本</span><strong id="asset-samples">—</strong></div>
+    </div>
+    <div id="asset-meta" class="asset-meta"></div>
+    <div class="asset-actions"><button id="asset-reload" class="btn btn-outline">↻ 重读本机数据</button><span>行情更新需在终端显式运行 <code>python app.py assets-update</code></span></div>
+   </section>
+   <p class="asset-note">仅展示真实原始价格与所选期间的算术涨跌幅及从区间最高点计算的最大回撤。10年历史不足时显示“历史不足”，绝不用较短时间模拟。指数不等于ETF基金收益；黄金ETF场内价格不包含交易费用与分红再投资。</p>
+  </div>
+ </main>
+</div>
+<script src="/plotly.min.js"></script>
+<script src="/asset-watch.js?v=0.9"></script>
+</body>
+</html>
