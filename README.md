@@ -1,6 +1,17 @@
-# A 股市场估值观察站（v0.5）
+# A 股市场估值观察站（v0.6）
 
-本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.5 保留 v0.3 的真实估值数据管线和 v0.4 的共享时间轴双图，重点统一图表操作区域并增加多指数估值比较。
+本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.6 保留 v0.3 的真实数据管线、v0.4 的共享时间轴双图和 v0.5 的统一操作区与多指数比较，新增严格同日的指数涨跌归因。
+
+## v0.6 行情涨跌归因
+
+- 支持 PE TTM / PB 与 1、3、5、10 年日历窗口。
+- 只匹配同一指数的真实同日正数点位与估值，不插值、不前向填充、不使用演示数据。
+- 定义 `X=P/M` 为隐含盈利或净资产代理，使用 `ln(P1/P0)=ln(M1/M0)+ln(X1/X0)` 精确拆分。
+- 趋势图以起点 100 归一化；贡献图单位为对数百分点，不能与普通百分比收益直接混加。
+- 混合来源、共同样本过少、起点覆盖不足或超过 30 天共同日期缺口时拒绝计算。
+- `X` 不是实际利润、EPS 或账面净资产；指数换样、权重、除数和第三方估值口径都会限制解释。
+
+接口：`GET /api/decomposition?index=000300&metric=pe_ttm&horizon=3y`。失败返回 `422` 和明确原因。
 
 ## v0.5 主要变化
 
@@ -58,6 +69,13 @@ python app.py
 python -m pip install akshare
 ```
 
+安装测试依赖：
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
+```
+
 估值诊断与更新：
 
 ```bash
@@ -92,7 +110,7 @@ PE 严格使用 `滚动市盈率`，不使用静态、等权或中位数列；PB
 ## 数据安全
 
 - 沿用 SQLite schema v3：`series`、`observations`、`active_series`、`update_runs`。
-- v0.5 没有修改数据库结构，也没有覆盖、删除现有估值记录。
+- v0.6 没有修改数据库结构，也没有覆盖、删除现有估值记录。
 - 日期排序、去重、未来日期拒绝、空数据/列变化拒绝、缺口和突变标记逻辑保持不变。
 - 比较 API `/api/comparison` 只返回当前激活的真实 SQLite 序列，不调用 `demo_rows`。
 - 四指数共同日期通过真实日期集合交集计算。
@@ -104,9 +122,10 @@ PE 严格使用 `滚动市盈率`，不使用静态、等权或中位数列；PB
 
 ```bash
 python -m unittest discover -s tests -p 'test_*.py' -v
+python -m pytest tests -q
 node tests/test_time_axis.js
 node --check static/app.js
-python -m py_compile app.py data_sources/*.py
+python -m py_compile app.py decomposition.py data_sources/*.py
 ```
 
 浏览器验收：
@@ -128,6 +147,8 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 - 最大化/还原保留缩放范围和控件。
 - 桌面和390px窄屏工具栏、横向滚动及刻度标签。
 - 原有采集幂等、网络失败保护、口径隔离、SQLite迁移和质量验证。
+- 归因恒等式、同日匹配、历史不足、稀疏数据、混源和大缺口拒绝。
+- 归因模式 PE/PB、区间、指数、最大化和窄屏真实浏览器交互。
 
 截图：
 
@@ -135,16 +156,20 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 - `artifacts/v0.5-comparison.png`
 - `artifacts/v0.5-maximized.png`
 - `artifacts/v0.5-mobile-controls.png`
+- `artifacts/v0.6-decomposition.png`
+- `artifacts/v0.6-decomposition-mobile.png`
 
 ## 文件结构
 
 - `app.py`：HTTP/API、比较序列查询、CLI 和更新入口。
+- `decomposition.py`：严格同日的指数估值对数归因纯算法。
 - `data_sources/history.py`：估值采集、验证、持久化和状态查询。
 - `data_sources/market.py`：指数收盘采集、验证和更新。
 - `data_sources/storage.py`：SQLite v3 schema 与安全迁移。
 - `static/index.html`：分析卡片、工具栏、双图和比较表结构。
 - `static/styles.css`：响应式工具栏、比较表和最大化布局。
-- `static/app.js`：统一状态、Plotly 配置、单指数与比较交互。
+- `static/app.js`：统一状态、Plotly 配置、单指数、比较与涨跌归因交互。
+- `docs/`：ChatGPT/Codex 共享的状态、决策与任务事实记录。
 - `tests/test_comparison_api.py`：共同日期、缺失数据和来源一致性测试。
 - `tests/test_time_axis.js`：前端状态、时间轴、比较和最大化单元测试。
 - `tests/browser_time_axis.py`：Playwright 真实交互验收与截图。

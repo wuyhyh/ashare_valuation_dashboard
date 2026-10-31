@@ -51,6 +51,36 @@ def status_fixture(index_code, metric, rows):
     }
 
 
+def decomposition_fixture(index_code, metric, horizon):
+    label = "隐含盈利代理" if metric == "pe_ttm" else "隐含净资产代理"
+    scale = 1 if metric == "pe_ttm" else .15
+    series = []
+    multiple_change = .35 * scale
+    for offset in range(37):
+        year, month_zero = divmod(2023 * 12 + 9 + offset, 12)
+        progress = offset / 36
+        normalized_index = 100 * 1.2 ** progress
+        normalized_multiple = 100 * (1 + multiple_change) ** progress
+        series.append({
+            "date": date(year, month_zero + 1, 28).isoformat(),
+            "index": round(normalized_index, 6),
+            "multiple": round(normalized_multiple, 6),
+            "implied": round(100 * normalized_index / normalized_multiple, 6),
+        })
+    implied_change = 1.2 / (1 + multiple_change) - 1
+    close_log = 100 * math.log(1.2)
+    multiple_log = 100 * math.log(1 + multiple_change)
+    return {
+        "index": index_code, "name": INDEX_NAMES[index_code], "metric": metric, "horizon": horizon,
+        "label": label, "start": series[0]["date"], "end": series[-1]["date"], "matched_count": 760,
+        "lag_days": 3, "price_source": "浏览器测试模拟指数响应", "valuation_source": "浏览器测试模拟估值响应",
+        "method": "log-return, exact: test fixture", "warnings": ["自动化测试：隐含代理不是实际利润或净资产"],
+        "changes_pct": {"close": 20, "multiple": 100 * multiple_change, "implied": 100 * implied_change},
+        "log_contributions_pp": {"close": close_log, "multiple": multiple_log, "implied": close_log - multiple_log},
+        "series": series,
+    }
+
+
 def single_state(page):
     return page.evaluate("""() => {
         const chart = document.getElementById('chart');
@@ -119,8 +149,20 @@ def main():
                        "warnings": [] if strict else ["缺少真实估值序列：中证1000；未使用演示数据参与比较"], "series": series}
             route.fulfill(status=200, content_type="application/json", body=json.dumps(payload, ensure_ascii=False))
 
+        def route_decomposition(route):
+            params = parse_qs(urlparse(route.request.url).query)
+            index_code = params.get("index", ["000300"])[0]
+            metric = params.get("metric", ["pe_ttm"])[0]
+            horizon = params.get("horizon", ["3y"])[0]
+            if horizon == "10y":
+                payload = {"error": "10y 历史覆盖不足或起点附近没有同日观测", "index": index_code, "metric": metric, "horizon": horizon}
+                route.fulfill(status=422, content_type="application/json", body=json.dumps(payload, ensure_ascii=False))
+                return
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(decomposition_fixture(index_code, metric, horizon), ensure_ascii=False))
+
         page.route("**/api/history?**", route_history)
         page.route("**/api/comparison?**", route_comparison)
+        page.route("**/api/decomposition?**", route_decomposition)
         response = page.goto(BASE_URL, wait_until="networkidle")
         assert response and "no-cache" in response.headers.get("cache-control", "")
         page.wait_for_function("document.getElementById('chart')._fullLayout?.xaxis2")
@@ -146,6 +188,28 @@ def main():
         page.wait_for_function("document.getElementById('chart')._fullLayout.xaxis2.dtick === 'M6'")
         reset_state = single_state(page)
         assert reset_state["stats"] == ten_year_stats
+
+        page.locator("button[data-mode='drivers']").click()
+        page.wait_for_function("document.getElementById('drivers-series-chart').data?.length === 3")
+        assert "760 个同日样本" in page.locator("#drivers-date").text_content()
+        assert page.locator("#drivers-warning").is_visible()
+        assert page.locator(".cards").is_hidden()
+        page.locator("button[data-metric='pb']").click()
+        page.wait_for_function("document.getElementById('drivers-implied-label').textContent.includes('净资产')")
+        page.locator("button[data-horizon='10y']").click()
+        page.wait_for_function("document.getElementById('drivers-warning').textContent.includes('历史覆盖不足')")
+        assert page.evaluate("document.getElementById('drivers-series-chart').data.length") == 0
+        assert "未使用演示数据" in page.locator("#data-source").text_content()
+        page.locator("button[data-horizon='3y']").click()
+        page.wait_for_function("document.getElementById('drivers-series-chart').data?.length === 3")
+        page.select_option("#idx", "000905")
+        page.wait_for_function("document.getElementById('drivers-title').textContent.includes('中证500')")
+        page.locator("#maximize-chart").click()
+        page.wait_for_function("document.getElementById('analysis-card').classList.contains('analysis-maximized')")
+        assert page.locator("#drivers-series-chart").is_visible() and page.locator("#drivers-bars-chart").is_visible()
+        page.locator("#analysis-card").screenshot(path=ARTIFACTS / "v0.6-decomposition.png")
+        page.locator("#maximize-chart").click()
+        page.wait_for_function("!document.getElementById('analysis-card').classList.contains('analysis-maximized')")
 
         page.locator("button[data-mode='compare']").click()
         page.wait_for_function("document.getElementById('compare-chart').data?.[0]?.x?.length === 4")
@@ -194,6 +258,10 @@ def main():
         assert page.evaluate("document.getElementById('window').scrollWidth >= document.getElementById('window').clientWidth")
         assert tick_overlaps(page) == 0
         page.locator("#analysis-card").screenshot(path=ARTIFACTS / "v0.5-mobile-controls.png")
+        page.locator("button[data-mode='drivers']").click()
+        page.wait_for_function("document.getElementById('drivers-series-chart').data?.length === 3")
+        assert page.locator("#drivers-series-chart").bounding_box()["width"] <= 370
+        page.locator("#analysis-card").screenshot(path=ARTIFACTS / "v0.6-decomposition-mobile.png")
         assert page_errors == [], page_errors
         browser.close()
 

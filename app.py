@@ -30,6 +30,7 @@ from data_sources import (
     update_index_history,
 )
 from data_sources.storage import connect as storage_connect
+from decomposition import analyze
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -164,6 +165,23 @@ def get_comparison_data(metric):
     }
 
 
+def get_decomposition_data(index_code, metric, horizon, asof=None):
+    if index_code not in INDICES or metric not in METRICS:
+        raise ValueError("不支持的指数或指标")
+    valuation_rows, _ = read_active_history(DB, index_code, metric)
+    market_rows, _ = read_index_history(DB, index_code)
+    result = analyze(
+        market_rows,
+        valuation_rows,
+        metric=metric,
+        horizon=horizon,
+        index_code=index_code,
+        asof=asof,
+    )
+    result["name"] = INDICES[index_code]
+    return result
+
+
 def response(handler, status, data):
     body = json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8")
     handler.send_response(status)
@@ -185,6 +203,19 @@ class Handler(BaseHTTPRequestHandler):
             if metric not in METRICS:
                 return response(self, 400, {"error": "不支持的估值指标"})
             return response(self, 200, get_comparison_data(metric))
+        if p.path == "/api/decomposition":
+            index_code = params.get("index", ["000300"])[0]
+            metric = params.get("metric", ["pe_ttm"])[0]
+            horizon = params.get("horizon", ["3y"])[0]
+            asof = params.get("asof", [None])[0]
+            if index_code not in INDICES or metric not in METRICS:
+                return response(self, 400, {"error": "不支持的指数或指标"})
+            try:
+                return response(self, 200, get_decomposition_data(index_code, metric, horizon, asof))
+            except ValueError as exc:
+                return response(self, 422, {
+                    "error": str(exc), "index": index_code, "metric": metric, "horizon": horizon,
+                })
         if p.path == "/api/history":
             index_code = params.get("index", ["000300"])[0]
             metric = params.get("metric", ["pe_ttm"])[0]

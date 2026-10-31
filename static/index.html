@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light" />
   <title>A股估值观察站 · 本地仪表盘</title>
-  <link rel="stylesheet" href="/styles.css?v=0.5" />
+  <link rel="stylesheet" href="/styles.css?v=0.6" />
 </head>
 <body>
   <div class="shell">
@@ -18,7 +18,7 @@
       <div class="sidebar-bottom"><div class="small-dot"></div><span>只在本地运行 · 数据自主管理</span></div>
     </aside>
     <main class="main">
-      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场估值</b></div><div class="header-right"><span class="dot"></span> 本地研究工具 <span class="tag">v0.5</span></div></header>
+      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场估值</b></div><div class="header-right"><span class="dot"></span> 本地研究工具 <span class="tag">v0.6</span></div></header>
       <div class="content">
         <div class="page-header"><div><div class="eyebrow">VALUATION MONITOR</div><h1>A股市场估值观察站</h1><p>单指数双图与多指数比较，共用一套紧贴图表的操作区域。</p></div></div>
         <div id="demo-banner" class="notice demo"><strong>演示模式</strong><span>当前单指数估值是合成示例，不会写入 SQLite；比较模式只使用真实序列。</span></div>
@@ -35,7 +35,7 @@
               <div class="toolbar-row primary-toolbar">
                 <label class="compact-field"><span>指数</span><select id="idx"><option value="000300">沪深300 · 000300</option><option value="000016">上证50 · 000016</option><option value="000905">中证500 · 000905</option><option value="000852">中证1000 · 000852</option></select></label>
                 <div class="compact-field"><span>指标</span><div class="segments compact-segments" id="metric"><button data-metric="pe_ttm" class="selected">PE TTM</button><button data-metric="pb">PB</button></div></div>
-                <div class="compact-field mode-field"><span>分析模式</span><div class="segments compact-segments" id="analysis-mode"><button data-mode="single" class="selected">单指数</button><button data-mode="compare">多指数比较</button></div></div>
+                <div class="compact-field mode-field"><span>分析模式</span><div class="segments compact-segments" id="analysis-mode"><button data-mode="single" class="selected">单指数</button><button data-mode="compare">多指数比较</button><button data-mode="drivers">涨跌归因</button></div></div>
               </div>
               <div class="toolbar-row range-toolbar" id="display-window-row"><span class="toolbar-label">图表范围</span><div class="segments scroll-segments" id="window"></div></div>
             </div>
@@ -49,6 +49,15 @@
               <div id="comparison-warning" class="comparison-warning" hidden></div>
               <div id="compare-chart" aria-label="多指数历史估值百分位横向比较图"></div>
               <div class="comparison-table-wrap"><table class="comparison-table"><thead><tr><th>指数</th><th>当前值</th><th>均值</th><th>标准差</th><th>百分位</th><th>Z-Score</th><th>均值偏离</th><th>数据截止</th><th>有效历史</th><th>来源 / 口径</th></tr></thead><tbody id="comparison-table-body"></tbody></table></div>
+            </div>
+
+            <div id="drivers-view" hidden>
+              <div class="drivers-range"><span class="toolbar-label">归因起止区间</span><div class="segments scroll-segments" id="drivers-window"><button data-horizon="1y">1年</button><button data-horizon="3y" class="selected">3年</button><button data-horizon="5y">5年</button><button data-horizon="10y">10年</button></div></div>
+              <div class="drivers-heading"><div><h3 id="drivers-title">行情涨跌归因</h3><p>仅匹配相同真实日期；数学拆分不代表财报利润或净资产变化</p></div><span id="drivers-date" class="count">—</span></div>
+              <div class="driver-kpis"><div><span>指数区间涨跌</span><strong id="drivers-price">—</strong></div><div><span>估值倍数涨跌</span><strong id="drivers-multiple">—</strong></div><div><span id="drivers-implied-label">隐含盈利代理变化</span><strong id="drivers-implied">—</strong></div></div>
+              <div id="drivers-warning" class="comparison-warning" hidden></div>
+              <div class="drivers-plots"><div class="drivers-chart-card"><h3>指数 · 估值 · 隐含代理（起点=100）</h3><div id="drivers-series-chart" class="drivers-series-plot"></div></div><div class="drivers-chart-card"><h3>对数收益贡献（百分点）</h3><div id="drivers-bars-chart" class="drivers-bars-plot"></div><p>两项贡献之和等于指数对数收益，不是普通百分比收益的直接加总。</p></div></div>
+              <div class="driver-meta" id="drivers-meta">等待真实数据</div>
             </div>
 
             <div class="chart-bottom-controls">
@@ -72,6 +81,6 @@
     </main>
   </div>
   <script src="/plotly.min.js"></script>
-  <script src="/app.js?v=0.5.1"></script>
+  <script src="/app.js?v=0.6"></script>
 </body>
 </html>
