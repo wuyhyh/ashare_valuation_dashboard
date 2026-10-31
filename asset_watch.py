@@ -13,7 +13,6 @@ import multiprocessing
 from pathlib import Path
 import queue
 import sqlite3
-from statistics import mean
 from zoneinfo import ZoneInfo
 
 
@@ -228,7 +227,7 @@ def _statistics(rows: list[dict], span: str) -> dict:
         if not before:
             return {"available": False, "reason": "历史记录不足以覆盖" + span}
         start_i = before[-1]
-        if (date.fromisoformat(rows[start_i]["date"]) - date.fromisoformat(cutoff)).days > 14:
+        if abs((date.fromisoformat(rows[start_i]["date"]) - date.fromisoformat(cutoff)).days) > 14:
             return {"available": False, "reason": "区间起点存在大幅数据缺口"}
         selected = rows[start_i:]
     if len(selected) < 2:
