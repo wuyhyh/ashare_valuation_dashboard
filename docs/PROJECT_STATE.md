@@ -11,6 +11,12 @@
 - 真实采集审计见 `docs/V08_DATA_AUDIT.md`；数据库和备份仍不进入 Git，新 clone 不自带这些数据。
 - 合并前须完成 Issue #4 剩余验收并经 PR 审查。
 
+## 本机运行透明化增量（仍属于 v0.8 Draft PR）
+- 新增 `python app.py doctor`：无需联网即可确认当前 Git 分支、提交、项目/数据库绝对路径与12项真实序列覆盖。
+- 新增 `python app.py sync`：显式备份 SQLite、逐项联网更新四指数点位与 PE/PB；不会在 `python app.py` 启动时自动采集。
+- 页面增加运行环境状态条，标识代码提交与本机数据库。新 clone 不会自动获得 Codex 本地已采集的真实数据。
+- 新增 `tests/test_local_runtime.py` 回归，CI 结果以对应最新提交为准；**不得把开发机数据状态当成本机通用状态**。
+
 ## 当前版本
 - 当前主分支：`main`，已包含 v0.7。合并提交：`ede49de38e95a2456e72f02e6ea6ca49094bca67`（2026-11-01）。
 - 集成来源：PR #3（`feat/v07-data-readiness`）已合并；PR #2 官方数据能力已由 PR #3 吸收，无须重复合并；Issue #1 已关闭。
