@@ -81,6 +81,26 @@ def decomposition_fixture(index_code, metric, horizon):
     }
 
 
+def coverage_fixture():
+    indices = []
+    for code in ("000016", "000300", "000905", "000852"):
+        metrics = {}
+        for metric in ("pe_ttm", "pb", "index_close"):
+            ready = code == "000300" and metric in ("pe_ttm", "pb", "index_close")
+            metrics[metric] = {
+                "count": 259 if ready and metric != "index_close" else 2628 if ready else 0,
+                "frequency": "daily" if ready and metric == "index_close" else "monthly" if ready else "unknown",
+                "first_date": "2016-01-04" if ready else None,
+                "last_date": "2026-10-30" if ready else None,
+                "source_name": "浏览器测试模拟响应（非市场数据）" if ready else None,
+                "source_interface": f"tests.fixture.{metric}" if ready else None,
+                "data_state": "ready" if ready else "no_data",
+                "missing_reason": None if ready else "尚未采集真实数据",
+            }
+        indices.append({"index": code, "name": INDEX_NAMES[code], "metrics": metrics})
+    return {"indices": indices, "summary": {"available": 3, "total": 12}}
+
+
 def single_state(page):
     return page.evaluate("""() => {
         const chart = document.getElementById('chart');
@@ -163,13 +183,23 @@ def main():
         page.route("**/api/history?**", route_history)
         page.route("**/api/comparison?**", route_comparison)
         page.route("**/api/decomposition?**", route_decomposition)
+        page.route("**/api/coverage", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(coverage_fixture(), ensure_ascii=False)
+        ))
         response = page.goto(BASE_URL, wait_until="networkidle")
         assert response and "no-cache" in response.headers.get("cache-control", "")
         page.wait_for_function("document.getElementById('chart')._fullLayout?.xaxis2")
 
         controls_box = page.locator("#chart-controls").bounding_box()
+        coverage_box = page.locator("#data-coverage-panel").bounding_box()
         chart_box = page.locator("#chart").bounding_box()
-        assert controls_box and chart_box and controls_box["y"] < chart_box["y"] and chart_box["y"]-controls_box["y"] < 180
+        assert controls_box and coverage_box and chart_box
+        assert controls_box["y"] < coverage_box["y"] < chart_box["y"]
+        assert chart_box["y"] - (coverage_box["y"] + coverage_box["height"]) < 30
+        assert page.locator("#coverage-body tr").count() == 4
+        assert page.locator("#coverage-summary").text_content() == "3 / 12 个真实序列"
+        assert "尚未采集真实数据" in page.locator("#coverage-body").text_content()
+        page.locator("#data-coverage-panel").screenshot(path=ARTIFACTS / "v0.7-data-coverage.png")
         initial = single_state(page)
         assert initial["dtick"] == "M6", initial
         assert tick_overlaps(page) == 0

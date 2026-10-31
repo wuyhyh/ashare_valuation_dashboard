@@ -5,7 +5,7 @@ const vm=require("vm");
 
 const elements=new Map();
 const ids=[
-  "analysis-card","analysis-layout","single-view","compare-view","drivers-view","chart-controls","display-window-row","insight-panel",
+  "analysis-card","analysis-layout","single-view","compare-view","drivers-view","chart-controls","display-window-row","insight-panel","data-coverage-panel","coverage-summary","coverage-body",
   "data-quality","quality-state","quality-source","quality-method","quality-range","quality-count","quality-fetched","quality-gaps","market-source","market-range",
   "chart-title","chart-subtitle","last-date","data-source","current","current-note","pct","pct-note","z","mean","mean-note","n-data","low","avg","high","std","signal-label","signal-text",
   "footer-status","demo-banner","error-banner","refresh","refresh-market","choose-file","file","file-name","export","idx","metric","analysis-mode","window","stats-window","chart","compare-chart",
@@ -77,6 +77,12 @@ assert.strictEqual(plots["compare-chart"].traces.length,0);
 assert.match(element("comparison-warning").textContent,/缺少真实序列/);
 assert.match(element("comparison-warning").textContent,/比较条形图已排除/);
 assert.match(element("comparison-table-body").innerHTML,/不参与比较/);
+
+run(`state.coverageData={summary:{available:2,total:12},indices:[{index:'000300',name:'沪深300',metrics:{pe_ttm:{count:259,frequency:'monthly',last_date:'2026-10-30',data_state:'ready'},pb:{count:0,frequency:'unknown',data_state:'no_data',missing_reason:'尚未采集真实数据'},index_close:{count:2628,frequency:'daily',last_date:'2026-10-30',data_state:'ready'}}}]};renderCoverage()`);
+assert.strictEqual(element("coverage-summary").textContent,"2 / 12 个真实序列");
+assert.match(element("coverage-body").innerHTML,/259 条/);
+assert.match(element("coverage-body").innerHTML,/月频 · 截至 2026-10-30/);
+assert.match(element("coverage-body").innerHTML,/尚未采集真实数据/);
 
 context.driverPayload={index:"000300",name:"沪深300",metric:"pe_ttm",horizon:"3y",label:"隐含盈利代理",start:"2023-10-30",end:"2026-10-30",matched_count:700,lag_days:1,price_source:"fixture.index_close",valuation_source:"fixture.pe_ttm",method:"log-return exact",warnings:["隐含代理不是实际利润"],changes_pct:{close:20,multiple:50,implied:-20},log_contributions_pp:{close:18.232155679,multiple:40.546510811,implied:-22.314355132},series:[{date:"2023-10-30",index:100,multiple:100,implied:100},{date:"2026-10-30",index:120,multiple:150,implied:80}]};
 run("state.mode='drivers';state.driverData=driverPayload;renderDrivers()");

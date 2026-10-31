@@ -77,6 +77,19 @@ def _check_date_arg(value: str, label: str) -> date:
         raise ValueError(f"{label}需要YYYYMMDD格式") from exc
 
 
+def _record_date(value) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    for fmt in ("%Y-%m-%d", "%Y%m%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(str(value).strip(), fmt).date()
+        except ValueError:
+            continue
+    raise DataSourceError(f"官方接口返回无法识别的日期: {value}")
+
+
 def fetch_official(
     index_code: str,
     *,
@@ -94,7 +107,8 @@ def fetch_official(
         raise ValueError("日期范围无效或包含未来日期")
     if timeout <= 0:
         raise ValueError("timeout必须为正数")
-    payload = (provider or _call_akshare)(index_code, start_date, end_date, timeout)
+    padded_start = (start - date.resolution).strftime("%Y%m%d")
+    payload = (provider or _call_akshare)(index_code, padded_start, end_date, timeout)
     columns, records = list(payload.get("columns") or []), list(payload.get("records") or [])
     if not records:
         raise DataSourceError("中证指数接口返回空数据，未写库")
@@ -102,6 +116,9 @@ def fetch_official(
         raise DataSourceError(f"官方接口缺少日期/收盘列，实际字段: {columns}")
     if "指数代码" not in columns:
         raise DataSourceError("官方接口缺少指数代码列，无法证明返回的是请求的指数")
+    records = [record for record in records if start <= _record_date(record.get("日期")) <= end]
+    if not records:
+        raise DataSourceError("中证指数接口在请求区间内没有有效记录，未写库")
     received = set()
     for record in records:
         raw_code = str(record.get("指数代码") or "").strip()
@@ -109,8 +126,9 @@ def fetch_official(
         received.add(raw_code)
     if received != {index_code}:
         raise DataSourceError(f"指数代码不匹配: 请求{index_code}, 返回{sorted(received)}")
-    return {"index_code": index_code, "records": records,
-            "columns": columns, "version": str(payload.get("version") or "unknown")}
+    return {"index_code": index_code, "records": records, "columns": columns,
+            "version": str(payload.get("version") or "unknown"),
+            "requested_start": start.isoformat(), "requested_end": end.isoformat()}
 
 
 def _prepare(raw: dict, metric: str) -> tuple[dict, dict]:
@@ -144,11 +162,17 @@ def diagnose_official(
 ) -> dict:
     raw = fetch_official(index_code, start_date=start_date, end_date=end_date, provider=provider)
     result = {"index": index_code, "source": SOURCE_INTERFACE, "version": raw["version"],
-              "columns": raw["columns"], "metrics": {}}
+              "columns": raw["columns"], "requested_start": raw["requested_start"],
+              "requested_end": raw["requested_end"], "metrics": {}}
     for selected in (METRIC_FIELDS if metric == "all" else [metric]):
         try:
             _, quality = _prepare(raw, selected)
-            result["metrics"][selected] = {k: v for k, v in quality.items() if k != "rows"}
+            rows = quality["rows"]
+            result["metrics"][selected] = {
+                **{k: v for k, v in quality.items() if k != "rows"},
+                "first_value": rows[0]["value"], "last_value": rows[-1]["value"],
+                "latest_samples": rows[-5:],
+            }
         except (DataSourceError, ValueError) as exc:
             result["metrics"][selected] = {"error": str(exc)}
     return result

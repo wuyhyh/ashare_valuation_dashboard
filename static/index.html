@@ -18,7 +18,7 @@
       <div class="sidebar-bottom"><div class="small-dot"></div><span>只在本地运行 · 数据自主管理</span></div>
     </aside>
     <main class="main">
-      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场估值</b></div><div class="header-right"><span class="dot"></span> 本地研究工具 <span class="tag">v0.6</span></div></header>
+      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场估值</b></div><div class="header-right"><span class="dot"></span> 本地研究工具 <span class="tag">v0.7</span></div></header>
       <div class="content">
         <div class="page-header"><div><div class="eyebrow">VALUATION MONITOR</div><h1>A股市场估值观察站</h1><p>单指数双图与多指数比较，共用一套紧贴图表的操作区域。</p></div></div>
         <div id="demo-banner" class="notice demo"><strong>演示模式</strong><span>当前单指数估值是合成示例，不会写入 SQLite；比较模式只使用真实序列。</span></div>
@@ -39,6 +39,11 @@
               </div>
               <div class="toolbar-row range-toolbar" id="display-window-row"><span class="toolbar-label">图表范围</span><div class="segments scroll-segments" id="window"></div></div>
             </div>
+
+            <section class="data-coverage-panel" id="data-coverage-panel" aria-label="四大指数真实数据覆盖状态">
+              <div class="coverage-heading"><span>四大指数数据覆盖</span><strong id="coverage-summary">读取中</strong></div>
+              <div class="coverage-scroll"><table class="coverage-table"><thead><tr><th>指数</th><th>PE TTM</th><th>PB</th><th>指数点位</th></tr></thead><tbody id="coverage-body"></tbody></table></div>
+            </section>
 
             <div id="single-view">
               <div id="chart" aria-label="指数点位与历史估值共享时间轴图"></div>

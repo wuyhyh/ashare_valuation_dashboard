@@ -65,3 +65,18 @@ def test_empty_or_future_range_rejected():
         fetch_official("000300", end_date="20990101", provider=lambda *args: response())
     with pytest.raises(ValueError, match="日期范围"):
         fetch_official("000300", start_date="20261030", end_date="20260101", provider=lambda *args: response())
+
+
+def test_synthetic_non_trading_start_record_is_filtered():
+    payload = response(n=10)
+    payload["records"].insert(0, {"日期": "2015-12-31", "指数代码": "000300", "收盘": 3469.07, "滚动市盈率": 13.32})
+    payload["columns"] = list(payload["records"][0])
+
+    def provider(code, start, end, timeout):
+        assert start == "20151231"
+        return payload
+
+    raw = fetch_official(
+        "000300", start_date="20160101", end_date="20261030", provider=provider,
+    )
+    assert raw["records"][0]["日期"] != "2015-12-31"
