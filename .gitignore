@@ -9,3 +9,8 @@ valuation.sqlite3
 valuation.sqlite3-*
 valuation.sqlite3.backup.*
 valuation.sqlite3.backup*
+
+# v0.9 private market breadth quote snapshots
+breadth.sqlite3
+breadth.sqlite3-*
+breadth.sqlite3.backup*
