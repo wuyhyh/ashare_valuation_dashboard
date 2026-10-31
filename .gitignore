@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+.idea/
+.DS_Store
+data_updates.log
+valuation.sqlite3
+valuation.sqlite3-*
+valuation.sqlite3.backup.*
+valuation.sqlite3.backup*
