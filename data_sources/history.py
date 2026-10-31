@@ -18,7 +18,12 @@ from .storage import connect, json_text, record_update_run, utc_now
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "valuation.sqlite3"
 LOGGER = logging.getLogger("valuation.data")
-INDEX_NAMES = {"000300": "沪深300"}
+INDEX_NAMES = {
+    "000016": "上证50",
+    "000300": "沪深300",
+    "000905": "中证500",
+    "000852": "中证1000",
+}
 SOURCE_SPECS = {
     "pe_ttm": {
         "source_name": "乐咕乐股 / AKShare",
@@ -103,7 +108,7 @@ def fetch_history(
     provider: Callable[[str, str, int], dict] | None = None,
 ) -> dict:
     if index_code not in INDEX_NAMES:
-        raise DataSourceError("v0.3 已联网验证的自动采集目前仅支持沪深300（000300）")
+        raise DataSourceError(f"不支持的指数代码：{index_code}")
     if metric not in SOURCE_SPECS:
         raise DataSourceError(f"不支持的估值指标: {metric}")
     spec = SOURCE_SPECS[metric]
