@@ -188,6 +188,8 @@ def get_comparison_data(metric):
     common_date = max(common_dates) if common_dates else None
     interfaces = {item["status"].get("source_interface") for item in series if item["available"] and item["status"]}
     methodologies = {item["status"].get("methodology") for item in series if item["available"] and item["status"]}
+    frequencies = {item["status"].get("frequency") for item in series if item["available"] and item["status"]}
+    frequency_consistent = len(frequencies) == 1 and next(iter(frequencies), None) not in (None, "unknown", "irregular")
     missing = [item["name"] for item in series if not item["available"]]
     warnings = []
     if missing:
@@ -196,11 +198,14 @@ def get_comparison_data(metric):
         warnings.append("四个指数没有共同估值日期，无法进行严格同日比较")
     if len(interfaces) > 1 or len(methodologies) > 1:
         warnings.append("存在不同数据来源或估值口径，比较结果不可直接排名")
+    if all_available and not frequency_consistent:
+        warnings.append("指数估值采样频率不一致或尚未核验，历史分位数不可作为严格同频率比较")
     return {
         "metric": metric,
         "common_date": common_date,
-        "strict_comparison": bool(all_available and common_date and len(interfaces) == 1 and len(methodologies) == 1),
+        "strict_comparison": bool(all_available and common_date and len(interfaces) == 1 and len(methodologies) == 1 and frequency_consistent),
         "source_consistent": len(interfaces) <= 1 and len(methodologies) <= 1,
+        "frequency_consistent": frequency_consistent,
         "warnings": warnings,
         "series": series,
     }
