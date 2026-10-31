@@ -45,5 +45,6 @@
 - [x] 完成四指数同口径真实比较、10年覆盖与 PE/PB 页面验收；本机 `/api/coverage` 为 12/12。
 - [x] 本地 61 项 pytest、36 项 unittest、Node、Python/JS 语法和 Playwright 回归通过。
 - [x] 更新 README、项目状态、决策和真实数据审计表；新增真实 PE/PB 比较截图。
+- [x] v0.8 真实联网验证与质量保护实现提交：`fea0a67`。
 - [ ] 推送本轮提交并确认 GitHub Actions CI 通过，更新 PR #5 后交由 ChatGPT 审查。
 - [ ] PR 审查通过后由维护者决定是否合并 `main`；本任务不直接合并。
