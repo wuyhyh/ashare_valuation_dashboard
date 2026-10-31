@@ -179,11 +179,14 @@ async function loadRuntime(){
     version.textContent=`代码：${info.branch||"未知"} @ ${info.commit||"未知"}`;
     database.textContent=`SQLite：${info.database_exists?"已找到":"不存在"}`;
     database.title=info.database_path||"";
-    coverage.textContent=`真实数据：${count}/${total}`;
-    tip.hidden=Boolean(info.database_exists&&count===total);
-    tip.textContent=info.database_exists?
-      `当前本机仅有 ${count}/${total} 条真实序列；可在终端运行 python app.py sync --only-missing 补齐。`:
-      "当前工作目录的应用尚无本地 SQLite 行情文件。请先运行 python app.py sync，然后刷新页面。";
+    const oldest=info.coverage?.oldest_cutoff,stale=info.coverage?.stale_or_failed??0;
+    coverage.textContent=`真实数据：${count}/${total}${oldest?` · 最早截止 ${oldest}`:""}`;
+    tip.hidden=Boolean(info.database_exists&&count===total&&!stale);
+    tip.textContent=!info.database_exists?
+      "当前工作目录尚无本地 SQLite 行情文件。请先运行 python app.py sync，再刷新页面。":
+      count<total?
+        `当前本机只有 ${count}/${total} 条真实序列。用 python app.py sync --only-missing 补齐；已有数据若过期则运行 python app.py sync。`:
+        `已有 ${count}/${total} 条真实序列，但其中 ${stale} 项过期或最近更新失败。运行 python app.py sync 后复查。`;
     $("runtime-strip").title=info.project_root||"";
   }catch(error){
     version.textContent="无法确认当前代码版本";
