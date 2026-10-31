@@ -7,6 +7,7 @@ is manufactured. This module never fetches data unless explicitly requested.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import closing
 import json
 import math
 from pathlib import Path
@@ -200,7 +201,7 @@ def open_db(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
 
 
 def persist_capture(capture: dict, db_path: str | Path = DEFAULT_DB) -> str:
-    with open_db(db_path) as db:
+    with closing(open_db(db_path)) as db, db:
         db.execute("""
             INSERT INTO breadth_captures (
                 capture_id,captured_at_utc,capture_local_date,trading_date,
@@ -228,7 +229,7 @@ def persist_capture(capture: dict, db_path: str | Path = DEFAULT_DB) -> str:
 def recent_captures(db_path: str | Path = DEFAULT_DB, limit: int = 20) -> list[dict]:
     if not Path(db_path).exists():
         return []
-    with open_db(db_path) as db:
+    with closing(open_db(db_path)) as db, db:
         rows = db.execute(
             "SELECT * FROM breadth_captures ORDER BY captured_at_utc DESC, capture_id DESC LIMIT ?",
             (min(max(int(limit), 1), 100),),
@@ -239,7 +240,7 @@ def recent_captures(db_path: str | Path = DEFAULT_DB, limit: int = 20) -> list[d
 def latest_report(db_path: str | Path = DEFAULT_DB) -> dict:
     if not Path(db_path).exists():
         return {"available": False, "message": "尚未采集真实主板宽度快照", "history": []}
-    with open_db(db_path) as db:
+    with closing(open_db(db_path)) as db, db:
         capture = db.execute(
             "SELECT * FROM breadth_captures ORDER BY captured_at_utc DESC, capture_id DESC LIMIT 1"
         ).fetchone()
