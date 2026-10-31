@@ -3,9 +3,10 @@
 最后更新：2026-10-31
 
 ## 当前版本
-- 实现分支：`feat/v06-decomposition`；验收后合并到 `main`。
+- 当前发布分支：`main`；实现分支 `feat/v06-decomposition` 保留用于审计。
 - 基线提交：`870cfed`（本地 v0.5.1 首次 Git 基线）。
 - v0.6 实现提交：`d1764be`（同日估值归因、API、前端、测试与协作文档）。
+- v0.6 主分支合并提交：`13a7d56`。
 - 数据库：沿用 SQLite v3，无 schema 变更；合并前备份为 `valuation.sqlite3.backup-pre-v06-20261031191356`。
 
 ## 已实现
@@ -26,7 +27,7 @@
 - [x] Playwright 通过：归因模式、PE/PB、1/3/5/10年状态、10年不足、指数切换、最大化和 390px 窄屏；截图使用明确标记的模拟响应。
 - [x] 保留 v0.3/v0.4/v0.5 数据层、统计定义和动态日期轴。
 - [ ] macOS AKShare 指数日线真实联网采集成功。
-- [ ] GitHub 主分支推送并供 ChatGPT 复核。
+- [x] `main` 与 `feat/v06-decomposition` 已推送到 GitHub；ChatGPT GitHub 连接器已成功回读本文件。
 
 ## 解释限制
 1. 隐含代理是指数层面的数学余项，不是成分股实际利润、EPS 或净资产。
