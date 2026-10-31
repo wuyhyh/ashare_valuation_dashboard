@@ -58,7 +58,7 @@
 - [x] Playwright 桌面与 390px 窄屏通过；10年缩放到3个月后变为周级刻度，统计样本保持不变，页面脚本错误为 0。
 - [x] 真实 SQLite 页面显示 12/12 序列、四行 PE/PB 比较、共同基准日 `2026-10-30`，无页面脚本错误。
 - [x] Python 编译、JavaScript 语法和 `git diff --check` 通过。
-- [x] PR #5 初版 GitHub Actions run #41221910812 已通过；本轮提交推送后仍需确认新 run。
+- [x] PR #5 GitHub Actions run #41223954421 已通过（提交 `7066b94`；61 项 pytest、36 项 unittest、Node 与语法检查）。
 
 ## 当前限制
 1. 所有联网 provider 均可能发生字段、限流或可用性变化；失败时保留原活动历史。
