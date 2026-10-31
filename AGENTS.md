@@ -1,0 +1,28 @@
+# Agents: VALUE LAB 估值观察站
+
+## 目标和边界
+- 工具用于研究 A 股历史估值与市场状态；不输出确定性买卖指令。
+- 项目源码、Git 提交和 `docs/` 是事实来源，不以聊天记忆为准。
+- 保留 SQLite v3 的 `series`、`observations`、`active_series`、`update_runs`，以及现有 CLI 和 HTTP API。
+- 数据源必须标注名称、接口、日期、频率和计算口径；严禁把演示或模拟数据展示为真实数据。
+- `valuation.sqlite3`、数据库备份、密钥、私人账户资料和投资记录不得进入 Git。
+
+## 开发前必读
+1. `docs/PROJECT_STATE.md`：当前版本、已验收项和真实限制。
+2. `docs/DECISIONS.md`：已确定的数据与数学口径。
+3. `docs/TASKS.md`：当前任务和验收条件。
+4. `README.md`：运行、更新、接口与测试命令。
+
+## 每次开发流程
+1. 检查 `git status`、当前分支和最近提交，再读取涉及源码。
+2. 只在任务范围内改动；改变数据或统计口径前先更新决策记录。
+3. 运行 `python -m pytest tests -q`、`node tests/test_time_axis.js`，尽可能完成 Playwright 浏览器验收。
+4. 明确区分离线模拟测试与真实联网采集，不把模拟测试称为市场数据验证。
+5. 每次交付同步更新 `docs/PROJECT_STATE.md` 和 `docs/TASKS.md`；重要设计变更追加 `docs/DECISIONS.md`。
+6. 提交后报告变更、测试、限制和 SHA；是否已合并或推送只以 Git 为准。
+
+## v0.6 数学原则
+- 只使用同一指数、相同真实日期、正数估值和指数点位配对；不得前向填充或插值。
+- `P` 是指数点位，`M` 是 PE TTM/PB，`X=P/M` 是隐含盈利/净资产代理，不是实际财务利润或净资产。
+- 使用 `ln(P1/P0)=ln(M1/M0)+ln(X1/X0)`，贡献单位为对数百分点，不能用普通百分比硬相加。
+- 指数换样、权重变化、除数和第三方估值口径差异必须在界面与文档中提示。
