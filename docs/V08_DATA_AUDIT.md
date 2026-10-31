@@ -29,6 +29,10 @@ python app.py diagnose-market --index 000852 --provider sina --start 20160101 --
 
 如批准后执行 `python app.py update --index all --metric all`，逐项核对 `/api/coverage` 和 `/api/comparison?metric=pe_ttm` / `pb`，检查是否存在不同口径、历史截断、共同日期错位或缺失样本。
 
+## 乐咕“指数”字段的身份验证注意事项
+
+乐咕指数 PB 公开接口样例的 `指数` 字段是**数值型指数点位**，并非指数名称或代码。不要据此做字符串身份比较。实际联网时需确认该列类型，并优先与经过核验的指数点位做最近至少5个**相同交易日**交叉校验，报告最大误差与日期。若上游字段或频率变化，先诊断再决定是否激活，不得默认为指数身份正确。离线样例用数值型点位模拟该字段。
+
 ## 估值口径边界
 
 - 乐咕 PE 固定取 `stock_index_pe_lg` 的 `滚动市盈率`；PB 固定取 `stock_index_pb_lg` 的 `市净率`。
