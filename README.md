@@ -21,6 +21,12 @@ python app.py                              # 启动页面，不联网更新
 
 **演示数据策略：** `/api/history` 默认只返回 SQLite 中已存在的真实历史；数据库为空时返回空数据和缺失状态，不再自动生成看似正常的估值曲线。仅显式请求 `/api/history?index=000300&metric=pe_ttm&demo=1` 时才输出带 `is_demo=true` 标记的合成示例。\n\n**安全规则：** `sync` 使用 SQLite 在线备份生成 `valuation.sqlite3.backup-before-sync-...`，逐项失败不会把其他来源静默伪装为成功。不会在页面启动时自动请求12个外部接口，以避免限流与启动卡顿。若各上游返回429/证书错误，先查看同步错误，再处理网络或证书环境。
 
+## v0.9（开发中）：科创50、创业板50与华安黄金ETF价格观察
+- `/assets.html` 提供三对象真实收盘价走势图，可切换3个月、6个月、1/3/5/8/10年和全部历史；日期轴缩放自动细化。
+- `python app.py assets-update` 显式更新全部三项，或以 `--asset 000688|399673|518880` 单项更新；`python app.py assets-doctor` 查看本机数据覆盖。行情存入独立 `asset_prices.sqlite3`，不随Git推送，不在启动时自动采集。
+- **科创50与创业板50只添加指数点位研究；PE/PB历史来源待核验。** 黄金采用518880场内非复权价，不能误当Au99.99现货或基金净值，不提供PE/PB。真实联网尚未验收，参见 `docs/V09_ASSETS_AUDIT.md`。
+- 10年数据不足时明确拒绝短历史冒充，按钮和时间轴直接放在图表上方。
+
 ## v0.9（开发中）：沪深主板市场宽度
 - 新增 `/breadth.html` 市场宽度页面，显示可审核的沪深主板**行情快照**，支持上海/深圳/合计切换和 ST 过滤；涨跌数、上涨比例、无成交和缺失报价分别统计。
 - `python app.py breadth-doctor`：不联网查看本机快照；`python app.py breadth-update`：主动调用 `ak.stock_zh_a_spot_em`，校验返回后存入独立 `breadth.sqlite3`。只浏览页面或运行 `python app.py` 不会自动抓取。
