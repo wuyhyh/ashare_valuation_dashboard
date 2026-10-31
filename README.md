@@ -2,6 +2,25 @@
 
 本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.8 在保留既有界面、统计和 SQLite v3 结构的前提下，完成上证50、沪深300、中证500、中证1000的真实 PE TTM、PB 与指数收盘验证，并启用严格同日、同来源、同口径、同频率的四指数历史百分位比较。
 
+## 为什么运行 `python app.py` 可能看不到 Codex 的真实数据？
+
+`python app.py` **只启动本地 HTTP 服务，不自动联网采集**。代码在 Git 仓库中共享，但 `valuation.sqlite3`（含真实估值和行情）被 `.gitignore` 排除；Codex 本机已采集的 12/12 个真实序列不会随着 Git 推送进入另一台电脑。尚未合并的 PR #5 v0.8 开发分支也不等于本地 `main`。
+
+```bash
+git fetch origin
+git switch feat/v08-multi-index-valuation
+git pull --ff-only origin feat/v08-multi-index-valuation
+python app.py doctor                       # 不联网：查看当前分支/提交、实际 SQLite 路径、12项覆盖
+python app.py sync                         # 显式备份 SQLite 并联网更新全部12项（可能被限流）
+python app.py                              # 启动页面，不联网更新
+```
+
+首次只想补缺失序列，可运行 `python app.py sync --only-missing`；**想获取最新数据不要使用 --only-missing**，因为该参数会跳过已有但可能过期的序列。可用 `--provider csindex_official|sina|auto` 指定指数点位数据源；默认显式使用已验证的中证官方接口，不改变 PE/PB 来源。
+
+页面上方新增运行环境状态条，能显示当前代码分支/提交、实际数据库是否存在、真实序列数，并可点击“检查本机状态”。如果浏览器仍显示旧版，检查旧进程是否占用 `127.0.0.1:8765`（例如 `lsof -nP -iTCP:8765 -sTCP:LISTEN`）并从新服务地址重新打开。注意中国内地 A 股休市日没有新增交易日行情；最新完整交易日可能仍是此前的星期五。
+
+**安全规则：** `sync` 使用 SQLite 在线备份生成 `valuation.sqlite3.backup-before-sync-...`，逐项失败不会把其他来源静默伪装为成功。不会在页面启动时自动请求12个外部接口，以避免限流与启动卡顿。若各上游返回429/证书错误，先查看同步错误，再处理网络或证书环境。
+
 ## v0.8 数据可用性
 
 - 四指数乐咕 PE 固定读取 `滚动市盈率`，PB 固定读取 `市净率`；不混入静态、等权或中位数列。
