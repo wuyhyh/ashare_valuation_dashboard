@@ -15,6 +15,9 @@ import json
 import logging
 import math
 import mimetypes
+import os
+import sqlite3
+import subprocess
 from pathlib import Path
 import sys
 import time
@@ -118,6 +121,106 @@ def get_coverage_data():
     return {
         "indices": indices,
         "summary": {"available": available, "total": len(COMPARISON_INDICES) * len(metrics)},
+    }
+
+
+def _git_value(*args):
+    try:
+        process = subprocess.run(
+            ["git", *args], cwd=ROOT, capture_output=True, text=True,
+            timeout=2, check=False,
+        )
+        return process.stdout.strip() if process.returncode == 0 else None
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def get_runtime_info():
+    """Report the source tree and local SQLite actually served by THIS process."""
+    branch = _git_value("branch", "--show-current")
+    sha = _git_value("rev-parse", "--short=12", "HEAD")
+    db_exists = DB.is_file()
+    coverage = get_coverage_data() if db_exists else None
+    summary = coverage["summary"] if coverage else {
+        "available": 0, "total": len(COMPARISON_INDICES) * 3
+    }
+    return {
+        "version": "v0.8-dev",
+        "branch": branch or "unknown",
+        "commit": sha or "unknown",
+        "project_root": str(ROOT.resolve()),
+        "database_path": str(DB.resolve()),
+        "database_exists": db_exists,
+        "process_id": os.getpid(),
+        "coverage": summary,
+        "note": "启动应用不会联网更新。新克隆仓库不包含 valuation.sqlite3；运行 python app.py sync 可显式采集。",
+    }
+
+
+def _sqlite_backup_for_sync():
+    """Use SQLite's online backup, not a raw copy of a possibly active WAL file."""
+    if not DB.is_file():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = DB.with_name(f"{DB.name}.backup-before-sync-{stamp}")
+    with sqlite3.connect(DB) as source, sqlite3.connect(backup) as target:
+        source.backup(target)
+    return backup
+
+
+MARKET_SYNC_START = {
+    "000016": "20050101",
+    "000300": "20160101",
+    "000905": "20070101",
+    "000852": "20140101",
+}
+
+
+def sync_all_real_data(*, provider="csindex_official", only_missing=False, pause_seconds=2.0):
+    """Explicit, foreground 12-series update; no silent demo and no auto-start fetch."""
+    if provider not in ("auto", *PROVIDER_CHOICES):
+        raise ValueError(f"不支持的数据源: {provider}")
+    if pause_seconds < 0:
+        raise ValueError("请求间隔不能小于0")
+    backup = _sqlite_backup_for_sync()
+    if backup:
+        print(f"本地 SQLite 已备份：{backup}", flush=True)
+    results = []
+    for index_code in COMPARISON_INDICES:
+        rows, _ = read_index_history(DB, index_code)
+        if only_missing and rows:
+            results.append({"index": index_code, "metric": "index_close", "status": "skipped"})
+            continue
+        print(f"更新 {INDICES[index_code]} 指数点位（{provider}）…", flush=True)
+        try:
+            result = update_market(index_code, start_date=MARKET_SYNC_START[index_code], provider_name=provider)
+            results.append({"index": index_code, "metric": "index_close", "status": "success", "last_date": result.get("last_date"), "count": result.get("count")})
+        except Exception as exc:
+            print(f"指数点位更新失败：{INDICES[index_code]} {exc}", file=sys.stderr, flush=True)
+            results.append({"index": index_code, "metric": "index_close", "status": "failed", "error": str(exc)})
+    for i, (index_code, metric) in enumerate(
+        (code, metric) for code in COMPARISON_INDICES for metric in METRICS
+    ):
+        rows, _ = read_active_history(DB, index_code, metric)
+        if only_missing and rows:
+            results.append({"index": index_code, "metric": metric, "status": "skipped"})
+            continue
+        if i or results:
+            time.sleep(pause_seconds)
+        print(f"更新 {INDICES[index_code]} {metric}…", flush=True)
+        try:
+            result = update_akshare(index_code, metric)
+            results.append({"index": index_code, "metric": metric, "status": "success", "last_date": result.get("last_date"), "count": result.get("count")})
+        except Exception as exc:
+            print(f"估值更新失败：{INDICES[index_code]} {metric} {exc}", file=sys.stderr, flush=True)
+            results.append({"index": index_code, "metric": metric, "status": "failed", "error": str(exc)})
+    return {
+        "backup": str(backup) if backup else None,
+        "results": results,
+        "success": sum(item["status"] == "success" for item in results),
+        "failed": sum(item["status"] == "failed" for item in results),
+        "skipped": sum(item["status"] == "skipped" for item in results),
+        "coverage": get_coverage_data()["summary"],
     }
 
 
@@ -289,6 +392,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         p = urlparse(self.path)
         params = parse_qs(p.query)
+        if p.path == "/api/runtime":
+            return response(self, 200, get_runtime_info())
         if p.path == "/api/status":
             return response(self, 200, {"indices": INDICES, "metrics": METRICS, "history": get_status()})
         if p.path == "/api/coverage":
@@ -391,6 +496,11 @@ def main():
     serve = sub.add_parser("serve", help="启动本地页面（默认）")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--host", default="127.0.0.1")
+    doctor = sub.add_parser("doctor", help="无需联网：查看当前源码、SQLite 路径与12条真实数据的覆盖情况")
+    sync_parser = sub.add_parser("sync", help="显式联网更新四指数点位及PE/PB；启动服务本身不会更新")
+    sync_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="csindex_official")
+    sync_parser.add_argument("--only-missing", action="store_true", help="仅采集本地不存在的序列")
+    sync_parser.add_argument("--pause", type=float, default=2.0, help="每次估值请求间隔秒数（默认2秒）")
     update = sub.add_parser("update", help="拉取真实历史估值（需akshare）")
     update.add_argument("--index", choices=list(INDICES) + ["all"], default="000300")
     update.add_argument("--metric", choices=list(METRICS) + ["all"], default="pe_ttm")
@@ -418,7 +528,23 @@ def main():
     imp.add_argument("--index", choices=INDICES, default="000300")
     imp.add_argument("--metric", choices=METRICS, default="pe_ttm")
     args = parser.parse_args()
-    if args.command == "update":
+    if args.command == "doctor":
+        print(json.dumps({
+            **get_runtime_info(),
+            "indices": get_coverage_data()["indices"] if DB.is_file() else [],
+        }, ensure_ascii=False, indent=2))
+        return 0
+    elif args.command == "sync":
+        try:
+            result = sync_all_real_data(
+                provider=args.provider, only_missing=args.only_missing, pause_seconds=args.pause
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 1 if result["failed"] else 0
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            print(f"全量更新未开始：{exc}", file=sys.stderr)
+            return 1
+    elif args.command == "update":
         codes = INDICES if args.index == "all" else [args.index]
         metrics = METRICS if args.metric == "all" else [args.metric]
         failed = 0
@@ -497,6 +623,11 @@ def main():
         host = getattr(args, "host", "127.0.0.1")
         port = getattr(args, "port", 8765)
         connect().close()
+        info = get_runtime_info()
+        print(f"项目目录：{info['project_root']}")
+        print(f"当前代码：{info['branch']} @ {info['commit']}")
+        print(f"真实数据库：{info['database_path']}（{info['coverage']['available']}/12 序列）")
+        print("注意：启动不自动更新行情；先执行 python app.py sync 获取真实数据。")
         print(f"打开浏览器：http://{host}:{port}   （Ctrl+C 结束）")
         try:
             ThreadingHTTPServer((host, port), Handler).serve_forever()
