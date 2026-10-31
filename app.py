@@ -38,6 +38,7 @@ from data_sources import (
 )
 from data_sources.storage import connect as storage_connect
 from decomposition import analyze
+from breadth import DEFAULT_DB as BREADTH_DB, latest_report as breadth_latest_report, update_from_akshare as breadth_update_from_akshare
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -400,6 +401,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         p = urlparse(self.path)
         params = parse_qs(p.query)
+        if p.path == "/api/breadth":
+            return response(self, 200, breadth_latest_report(BREADTH_DB))
         if p.path == "/api/runtime":
             return response(self, 200, get_runtime_info())
         if p.path == "/api/status":
@@ -504,6 +507,8 @@ def main():
     serve = sub.add_parser("serve", help="启动本地页面（默认）")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--host", default="127.0.0.1")
+    sub.add_parser("breadth-doctor", help="无需联网：查看最新沪深主板真实市场宽度快照")
+    sub.add_parser("breadth-update", help="主动联网采集沪深主板A股行情快照（不自动回填交易日）")
     doctor = sub.add_parser("doctor", help="无需联网：查看当前源码、SQLite 路径与12条真实数据的覆盖情况")
     sync_parser = sub.add_parser("sync", help="显式联网更新四指数点位及PE/PB；启动服务本身不会更新")
     sync_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="csindex_official")
@@ -536,7 +541,18 @@ def main():
     imp.add_argument("--index", choices=INDICES, default="000300")
     imp.add_argument("--metric", choices=METRICS, default="pe_ttm")
     args = parser.parse_args()
-    if args.command == "doctor":
+    if args.command == "breadth-doctor":
+        print(json.dumps(breadth_latest_report(BREADTH_DB), ensure_ascii=False, indent=2))
+        return 0
+    elif args.command == "breadth-update":
+        try:
+            result = breadth_update_from_akshare(BREADTH_DB)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        except Exception as exc:
+            print(f"市场宽度采集失败：{exc}", file=sys.stderr)
+            return 1
+    elif args.command == "doctor":
         print(json.dumps({
             **get_runtime_info(),
             "indices": get_coverage_data()["indices"] if DB.is_file() else [],
