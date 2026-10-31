@@ -180,3 +180,33 @@ def update_official(
             except Exception:
                 pass
         raise
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description="中证指数官方历史行情/PE 诊断与显式导入")
+    parser.add_argument("command", choices=["diagnose", "update"])
+    parser.add_argument("--index", choices=sorted(INDEX_CODES), default="000300")
+    parser.add_argument("--metric", choices=["index_close", "pe_ttm", "all"], default="all")
+    parser.add_argument("--start", default="20160101")
+    parser.add_argument("--end", default=None)
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "diagnose":
+            result = diagnose_official(args.index, start_date=args.start,
+                                       end_date=args.end, metric=args.metric)
+        else:
+            result = update_official(args.index, start_date=args.start,
+                                     end_date=args.end, metric=args.metric)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        return 0
+    except Exception as exc:
+        print(f"官方数据{args.command}失败：{exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
