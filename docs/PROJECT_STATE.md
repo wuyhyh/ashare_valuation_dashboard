@@ -3,9 +3,9 @@
 最后更新：2026-10-31
 
 ## 当前版本
-- 分支：`feat/v06-decomposition`。
+- 实现分支：`feat/v06-decomposition`；验收后合并到 `main`。
 - 基线提交：`870cfed`（本地 v0.5.1 首次 Git 基线）。
-- v0.6 实现提交：等待完成测试后记录。
+- v0.6 实现提交：`d1764be`（同日估值归因、API、前端、测试与协作文档）。
 - 数据库：沿用 SQLite v3，无 schema 变更；合并前备份为 `valuation.sqlite3.backup-pre-v06-20261031191356`。
 
 ## 已实现

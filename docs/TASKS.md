@@ -13,6 +13,6 @@
 - [x] 建立本地 Git 基线和 `feat/v06-decomposition` 分支。
 - [x] 加入 `AGENTS.md`、项目状态、决策和任务记录。
 - [x] 数据库与备份从 Git 排除。
-- [ ] 提交 v0.6 实现并记录 SHA。
+- [x] 提交 v0.6 实现并记录 SHA：`d1764be`。
 - [ ] 合并到 `main` 并推送 GitHub。
 - [ ] 由 ChatGPT 通过授权仓库复核提交和状态文档。
