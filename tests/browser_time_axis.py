@@ -189,6 +189,16 @@ def main():
                 return
             route.fulfill(status=200, content_type="application/json", body=json.dumps(decomposition_fixture(index_code, metric, horizon), ensure_ascii=False))
 
+        page.route("**/api/runtime", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({
+                "version": "v0.8-dev",
+                "branch": "feat/v08-multi-index-valuation", "commit": "abc012fixture",
+                "database_exists": True, "database_path": "/tmp/test/valuation.sqlite3",
+                "project_root": "/tmp/test", "coverage": {"available": 3, "total": 12},
+                "note": "browser fixture, not real market data",
+            }, ensure_ascii=False)
+        ))
         page.route("**/api/history?**", route_history)
         page.route("**/api/comparison?**", route_comparison)
         page.route("**/api/decomposition?**", route_decomposition)
@@ -198,6 +208,14 @@ def main():
         response = page.goto(BASE_URL, wait_until="networkidle")
         assert response and "no-cache" in response.headers.get("cache-control", "")
         page.wait_for_function("document.getElementById('chart')._fullLayout?.xaxis2")
+
+        assert "feat/v08-multi-index-valuation" in page.locator("#runtime-version").text_content()
+        assert "abc012fixture" in page.locator("#runtime-version").text_content()
+        assert "已找到" in page.locator("#runtime-db").text_content()
+        assert "3/12" in page.locator("#runtime-coverage").text_content()
+        assert "python app.py sync" in page.locator("#runtime-tip").text_content()
+        page.locator("#runtime-refresh").click()
+        assert "3/12" in page.locator("#runtime-coverage").text_content()
 
         controls_box = page.locator("#chart-controls").bounding_box()
         coverage_box = page.locator("#data-coverage-panel").bounding_box()
