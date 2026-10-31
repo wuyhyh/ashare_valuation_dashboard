@@ -109,4 +109,4 @@ assert.ok(element("analysis-card").classList.contains("analysis-maximized"));
 run("toggleMaximize()");
 assert.strictEqual(run("state.isMaximized"),false);
 assert.ok(resizeCalls>=2);
-console.log("v0.7 state, time-axis, comparison and monthly decomposition tests: OK");
+console.log("v0.8 state, time-axis, comparison and monthly decomposition tests: OK");

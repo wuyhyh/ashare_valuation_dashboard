@@ -164,15 +164,41 @@ function renderCoverage(){
   if(!payload?.indices?.length){body.innerHTML='<tr><td colspan="4">覆盖状态暂不可用</td></tr>';$("coverage-summary").textContent="读取失败";return;}
   const metricCell=(item,metric)=>{const status=item.metrics?.[metric]||{},ready=status.count>0,reason=status.missing_reason;
     const detail=ready?`${localizedFrequency(status.frequency)} · 截至 ${escapeHtml(status.last_date||"—")}`:escapeHtml(reason||"尚未采集真实数据");
-    const title=escapeHtml([status.source_name,status.source_interface,reason].filter(Boolean).join(" · "));
+    const identity=status.source_identity?.status?`身份核验：${status.source_identity.status}`:null;
+    const title=escapeHtml([status.source_name,status.source_interface,identity,reason].filter(Boolean).join(" · "));
     return `<td class="coverage-cell ${ready?"ready":"missing"}" title="${title}"><strong>${ready?`${status.count} 条`:"无真实数据"}</strong><span class="${reason?"coverage-missing":""}">${detail}</span></td>`;};
   body.innerHTML=payload.indices.map(item=>`<tr><td>${escapeHtml(item.name)}<br><span>${escapeHtml(item.index)}</span></td>${metricCell(item,"pe_ttm")}${metricCell(item,"pb")}${metricCell(item,"index_close")}</tr>`).join("");
   const summary=payload.summary||{};$("coverage-summary").textContent=`${summary.available??0} / ${summary.total??12} 个真实序列`;
 }
+async function loadRuntime(){
+  const version=$("runtime-version"),database=$("runtime-db"),coverage=$("runtime-coverage"),tip=$("runtime-tip");
+  try{
+    const response=await fetch("/api/runtime",{cache:"no-store"});
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const info=await response.json(),total=info.coverage?.total??12,count=info.coverage?.available??0;
+    version.textContent=`代码：${info.branch||"未知"} @ ${info.commit||"未知"}`;
+    database.textContent=`SQLite：${info.database_exists?"已找到":"不存在"}`;
+    database.title=info.database_path||"";
+    const oldest=info.coverage?.oldest_cutoff,stale=info.coverage?.stale_or_failed??0;
+    coverage.textContent=`真实数据：${count}/${total}${oldest?` · 最早截止 ${oldest}`:""}`;
+    tip.hidden=Boolean(info.database_exists&&count===total&&!stale);
+    tip.textContent=!info.database_exists?
+      "当前工作目录尚无本地 SQLite 行情文件。请先运行 python app.py sync，再刷新页面。":
+      count<total?
+        `当前本机只有 ${count}/${total} 条真实序列。用 python app.py sync --only-missing 补齐；已有数据若过期则运行 python app.py sync。`:
+        `已有 ${count}/${total} 条真实序列，但其中 ${stale} 项过期或最近更新失败。运行 python app.py sync 后复查。`;
+    $("runtime-strip").title=info.project_root||"";
+  }catch(error){
+    version.textContent="无法确认当前代码版本";
+    database.textContent="数据库状态未知";
+    coverage.textContent="运行环境检测失败";
+    tip.hidden=false;tip.textContent=`运行环境接口不可用：${error.message}；请运行 python app.py doctor。`;
+  }
+}
 async function loadCoverage(){try{const response=await fetch("/api/coverage"),data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);state.coverageData=data;renderCoverage();}catch(error){state.coverageData=null;renderCoverage();}}
 function renderSingleQuality(){
   const status=state.dataStatus||{},market=state.marketStatus||{},rows=selectedStatsRows(),supported=state.statsWindow==="all"||hasCoverage(state.valuationRows,state.statsWindow,state.valuationRows.at(-1)?.date);
-  let label="真实数据",tone="real";if(state.demo){label=status.last_update_status==="failed"?"演示估值 / 更新失败":"演示估值";tone="demo";}else if(status.last_update_status==="failed"){label="更新失败 · 已保留原估值";tone="error";}else if(status.is_stale){label="真实估值 · 已过期";tone="warn";}else if(!supported||rows.length<30){label="真实估值 · 样本不足";tone="warn";}else if(!state.marketRows.length){label="真实估值 · 点位缺失";tone="warn";}
+  let label="真实数据",tone="real";if(!state.valuationRows.length){label="无真实估值数据";tone="warn";}else if(state.demo){label=status.last_update_status==="failed"?"演示估值 / 更新失败":"演示估值";tone="demo";}else if(status.last_update_status==="failed"){label="更新失败 · 已保留原估值";tone="error";}else if(status.is_stale){label="真实估值 · 已过期";tone="warn";}else if(!supported||rows.length<30){label="真实估值 · 样本不足";tone="warn";}else if(!state.marketRows.length){label="真实估值 · 点位缺失";tone="warn";}
   $("quality-state").className=`quality-badge ${tone}`;$("quality-state").textContent=label;
   $("quality-source").textContent=`${status.source_name||"—"}${status.source_interface?` · ${status.source_interface}`:""}`;$("quality-method").textContent=status.methodology||"—";
   $("quality-range").textContent=status.first_date&&status.last_date?`${status.first_date} → ${status.last_date}`:"—";$("quality-count").textContent=`${status.count??state.valuationRows.length} 条 · ${localizedFrequency(status.frequency)}`;
@@ -298,9 +324,11 @@ $("stats-window").addEventListener("click",event=>{const button=event.target.clo
 $("drivers-window").addEventListener("click",event=>{const button=event.target.closest("button[data-horizon]");if(!button||button.dataset.horizon===state.driverHorizon)return;state.driverHorizon=button.dataset.horizon;state.driverData=null;syncControls();loadDrivers();});
 $("comparison-table-body").addEventListener("click",event=>{const row=event.target.closest("tr[data-index]");if(row)enterSingleIndex(row.dataset.index);});
 $("reset-zoom").addEventListener("click",resetZoom);$("maximize-chart").addEventListener("click",toggleMaximize);document.addEventListener("keydown",event=>{if(event.key==="Escape"&&state.isMaximized)toggleMaximize();});
+$("runtime-refresh").addEventListener("click",async()=>{await loadRuntime();await loadCoverage();if(state.mode==="single")await loadSingle({preserveRange:true});else if(state.mode==="compare")await loadComparison();else await loadDrivers({force:true});});
 $("refresh").addEventListener("click",updateReal);$("refresh-market").addEventListener("click",updateMarket);$("export").addEventListener("click",exportCsv);$("choose-file").addEventListener("click",()=>$("file").click());$("file").addEventListener("change",event=>{const file=event.target.files[0];if(file){$("file-name").textContent=file.name;importFile(file);}event.target.value="";});
 let resizeTimer;window.addEventListener("resize",()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{const charts=state.mode==="drivers"?[$("drivers-series-chart"),$("drivers-bars-chart")]:[state.mode==="single"?$("chart"):$("compare-chart")];charts.forEach(chart=>{if(chart&&Plotly.Plots?.resize)Plotly.Plots.resize(chart);});if(state.mode==="single"&&state.visibleRange)applyAdaptiveTimeAxis(state.visibleRange);},140);});
 
 setupControls();
+loadRuntime();
 loadCoverage();
 loadSingle();

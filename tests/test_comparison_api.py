@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 import tempfile
 import unittest
@@ -70,6 +70,30 @@ class ComparisonApiTests(unittest.TestCase):
         self.assertTrue(all(not item["rows"] for item in result["series"] if not item["available"]))
         self.assertIn("未使用演示数据", result["warnings"][0])
 
+    def test_mixed_observation_frequencies_reject_strict_ranking(self):
+        rows = monthly_rows()
+        start = date(2026, 1, 1)
+        end = date(2026, 10, 31)
+        daily_rows = []
+        cursor = start
+        while cursor <= end:
+            daily_rows.append((cursor.isoformat(), 18.0 + len(daily_rows) * .001))
+            cursor += timedelta(days=1)
+
+        for code in ("000016", "000300", "000905", "000852"):
+            item_rows = daily_rows if code == "000852" else rows
+            update_history(
+                code, "pe_ttm", db_path=self.db,
+                fetcher=lambda *_args, c=code, r=item_rows: fetched(c, "pe_ttm", r),
+            )
+        with patch.object(app, "DB", self.db):
+            result = app.get_comparison_data("pe_ttm")
+        self.assertTrue(result["source_consistent"])
+        self.assertFalse(result["frequency_consistent"])
+        self.assertFalse(result["strict_comparison"])
+        self.assertIsNotNone(result["common_date"])
+        self.assertTrue(any("采样频率" in warning for warning in result["warnings"]))
+
     def test_different_sources_disable_strict_ranking(self):
         rows = monthly_rows()
         for code in ("000016", "000300", "000905", "000852"):
@@ -82,6 +106,27 @@ class ComparisonApiTests(unittest.TestCase):
         self.assertFalse(result["source_consistent"])
         self.assertFalse(result["strict_comparison"])
         self.assertTrue(any("不同数据来源或估值口径" in warning for warning in result["warnings"]))
+
+    def test_failed_recorded_identity_check_disables_strict_ranking(self):
+        rows = [{"date": day, "value": value} for day, value in monthly_rows()]
+        status_by_code = {
+            code: {
+                "source_interface": SOURCE_SPECS["pe_ttm"]["source_interface"],
+                "methodology": SOURCE_SPECS["pe_ttm"]["methodology"],
+                "frequency": "monthly",
+                "source_identity": {"status": "warning" if code == "000852" else "passed"},
+            }
+            for code in app.COMPARISON_INDICES
+        }
+
+        def active_history(_db, index_code, _metric):
+            return rows, status_by_code[index_code]
+
+        with patch.object(app, "read_active_history", side_effect=active_history):
+            result = app.get_comparison_data("pe_ttm")
+        self.assertFalse(result["identity_consistent"])
+        self.assertFalse(result["strict_comparison"])
+        self.assertTrue(any("身份交叉核验" in warning for warning in result["warnings"]))
 
 
 if __name__ == "__main__":
