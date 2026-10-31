@@ -30,4 +30,4 @@
 - [x] 全量 Python（52 pytest / 27 unittest）、Node、Playwright 回归。
 - [x] 更新 PR #3 正文和审查回复。
 - [x] 本次集成提交 SHA：`9c782d6`。
-- [ ] 合并 `main`：本任务不执行。
+- [x] 已通过 PR #3 合并到 `main`：合并提交 `ede49de38e95a2456e72f02e6ea6ca49094bca67`（2026-11-01），Issue #1 已关闭。
