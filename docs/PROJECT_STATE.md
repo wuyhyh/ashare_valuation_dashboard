@@ -1,3 +1,8 @@
+## v0.9 跨资产观察增量（Issue #8，尚未发布）
+- 在同一分支增加 `asset_watch.py`、`/api/assets`、`assets-update` / `assets-doctor` 和 `/assets.html`，覆盖科创50（000688）、创业板50（399673）、华安黄金ETF（518880）。
+- 对象分类和价格单位、来源字段、行情历史保存在独立 `asset_prices.sqlite3`；不引入未核验PE/PB，不把黄金ETF场内价与净值或Au99.99拼接。
+- 新增独立数据审计 `docs/V09_ASSETS_AUDIT.md` 与离线测试；真实联网与真实浏览器验收仍需在开发机执行，CI状态以最新PR提交为准。
+
 ## v0.9 当前开发（非发布）
 - 开发分支：`feat/v09-market-breadth`，Issue #6，主分支仍以 v0.8 为稳定版。
 - 已提交：独立 `breadth.py` 实时股票快照标准化、主板初筛、ST筛选、涨跌/零成交统计、`breadth.sqlite3` 独立存储；`/api/breadth` 只读接口、`breadth-doctor` / `breadth-update` 命令和 `/breadth.html` 初版 UI。
