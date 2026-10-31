@@ -425,8 +425,8 @@ class Handler(BaseHTTPRequestHandler):
                 return response(self, 400, {"error": "不支持的指数或指标"})
             rows, data_status = read_active_history(DB, index_code, metric)
             market_rows, market_status = read_index_history(DB, index_code)
-            demo = not rows
-            # Empty database shows a DEMO, explicitly labeled as non-real data.
+            # No silent synthetic fallback: only explicit demo=1 may show a fake curve.
+            demo = not rows and params.get("demo", ["0"])[0] == "1"
             if demo:
                 rows = demo_rows(index_code, metric)
                 data_status = {
