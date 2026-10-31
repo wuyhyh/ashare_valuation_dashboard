@@ -141,9 +141,17 @@ def get_runtime_info():
     sha = _git_value("rev-parse", "--short=12", "HEAD")
     db_exists = DB.is_file()
     coverage = get_coverage_data() if db_exists else None
-    summary = coverage["summary"] if coverage else {
+    summary = dict(coverage["summary"]) if coverage else {
         "available": 0, "total": len(COMPARISON_INDICES) * 3
     }
+    if coverage:
+        metrics = [status for index in coverage["indices"] for status in index["metrics"].values()]
+        cutoffs = [item["last_date"] for item in metrics if item.get("last_date")]
+        summary["oldest_cutoff"] = min(cutoffs) if cutoffs else None
+        summary["newest_cutoff"] = max(cutoffs) if cutoffs else None
+        summary["stale_or_failed"] = sum(
+            item.get("data_state") in ("stale", "update_failed") for item in metrics
+        )
     return {
         "version": "v0.8-dev",
         "branch": branch or "unknown",
