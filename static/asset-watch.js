@@ -15,6 +15,32 @@ function axisDtick(windowKey){
  if(["8y","10y"].includes(windowKey))return "M6";
  return "M12";
 }
+function tickFromVisibleRange(range){
+ if(!Array.isArray(range)||range.length!==2)return "M12";
+ const from=Date.parse(range[0]),to=Date.parse(range[1]);
+ if(!Number.isFinite(from)||!Number.isFinite(to)||to<=from)return "M12";
+ const days=(to-from)/86400000;
+ if(days<=95)return 7*86400000;
+ if(days<=370)return "M1";
+ if(days<=5*366)return "M3";
+ if(days<=10*366)return "M6";
+ return "M12";
+}
+function bindAdaptiveZoom(){
+ const gd=byId("asset-chart");
+ if(gd.__assetAdaptiveZoomBound)return;
+ gd.__assetAdaptiveZoomBound=true;
+ gd.on("plotly_relayout",event=>{
+  if(!event||!(event["xaxis.range[0]"]||event["xaxis.range[1]"]||event["xaxis.autorange"]))return;
+  const range=gd._fullLayout?.xaxis?.range;
+  if(!range)return;
+  const wanted=tickFromVisibleRange(range),current=gd.layout?.xaxis?.dtick;
+  if(wanted!==current){
+   Promise.resolve(Plotly.relayout(gd,{"xaxis.dtick":wanted}))
+      .catch(err=>console.warn("Date ticks could not be updated",err));
+  }
+ });
+}
 function showEmpty(msg){
  byId("asset-empty").textContent=msg;
  byId("asset-empty").hidden=false;
@@ -50,7 +76,7 @@ function render(){
    yaxis:{title:{text:unit},tickformat:".2f",showgrid:true,gridcolor:"#edf2f7"},
    font:{family:"-apple-system, PingFang SC, sans-serif",color:"#60718a",size:11},
    uirevision:state.asset+":"+state.window
- },{responsive:true,displaylogo:false,scrollZoom:true});
+ },{responsive:true,displaylogo:false,scrollZoom:true}).then(bindAdaptiveZoom);
 }
 async function load(){
  const token=++state.token;
