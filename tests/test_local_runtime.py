@@ -4,6 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
+import urllib.request
+from http.server import ThreadingHTTPServer
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -25,6 +28,36 @@ class RuntimeInfoTests(TestCase):
                 info = app.get_runtime_info()
                 self.assertTrue(info["database_exists"])
                 self.assertEqual(info["coverage"]["available"], 0)
+
+    def test_empty_database_never_returns_automatic_demo(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "local.sqlite3"
+            with patch.object(app, "DB", db):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    host = f"http://127.0.0.1:{server.server_port}"
+                    with urllib.request.urlopen(host + "/api/history?index=000300&metric=pe_ttm") as reply:
+                        import json
+                        payload = json.load(reply)
+                    self.assertFalse(payload["is_demo"])
+                    self.assertEqual(payload["rows"], [])
+
+                    with urllib.request.urlopen(host + "/api/history?index=000300&metric=pe_ttm&demo=1") as reply:
+                        import json
+                        explicit_demo = json.load(reply)
+                    self.assertTrue(explicit_demo["is_demo"])
+                    self.assertGreater(len(explicit_demo["rows"]), 20)
+
+                    with urllib.request.urlopen(host + "/api/runtime") as reply:
+                        import json
+                        info = json.load(reply)
+                    self.assertEqual(info["database_path"], str(db.resolve()))
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=2)
 
     def test_sync_makes_backup_and_runs_twelve_explicit_requests(self):
         with tempfile.TemporaryDirectory() as folder:
