@@ -1,3 +1,10 @@
+## v0.9 当前开发（非发布）
+- 开发分支：`feat/v09-market-breadth`，Issue #6，主分支仍以 v0.8 为稳定版。
+- 已提交：独立 `breadth.py` 实时股票快照标准化、主板初筛、ST筛选、涨跌/零成交统计、`breadth.sqlite3` 独立存储；`/api/breadth` 只读接口、`breadth-doctor` / `breadth-update` 命令和 `/breadth.html` 初版 UI。
+- 已建立离线测试，须以 GitHub Actions 最新成功记录核实；**没有宣称真实联网已经成功**。
+- 尚待：实际抓取字段与覆盖率、交易所股票池身份核验、交易日确认和完整移动端 Playwright 验收。
+- 不允许基于当日仍上市名单回填历史数据，也不允许以抓取日期代替交易日期。见 `docs/V09_BREADTH_AUDIT.md`。
+
 # 项目状态 · 共享事实记录
 
 最后更新：2026-11-01
