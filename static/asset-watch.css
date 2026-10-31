@@ -1,0 +1,21 @@
+/* v0.9 price-series research. Controls immediately precede plot. */
+.sidebar a.menu-item{text-decoration:none}
+.asset-notice{background:#fff9ec;border:1px solid #f1e2bf;border-radius:10px;padding:14px 16px;font-size:12px;line-height:1.7;color:#795c30;margin-bottom:17px}
+.asset-panel{background:#fff;border:1px solid #e5ebf4;border-radius:12px;padding:22px 24px}
+.asset-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.asset-head h2{font-size:16px}.asset-head span{font-size:11px;color:#76859d}
+.asset-controls{display:flex;flex-direction:column;gap:12px;padding:19px 0 8px}
+.asset-tabs,.asset-windows{display:flex;gap:5px;flex-wrap:wrap}
+.asset-tabs button,.asset-windows button{border:1px solid #e1e7f0;border-radius:7px;background:#f7f9fc;padding:8px 12px;color:#56708d;font-size:12px}
+.asset-tabs button.selected,.asset-windows button.selected{background:#316ce6;color:#fff;border-color:#316ce6}
+#asset-chart{height:530px;width:100%}
+.asset-empty{border:1px dashed #c5d1df;background:#f8fafd;border-radius:9px;padding:30px 15px;text-align:center;color:#657790;line-height:1.8}
+.asset-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.asset-stat-grid div{background:#f6f9fd;border:1px solid #e7edf6;padding:13px;border-radius:9px}
+.asset-stat-grid span{display:block;font-size:11px;color:#78869a;margin-bottom:8px}
+.asset-stat-grid strong{font-size:19px;color:#243f60;font-variant-numeric:tabular-nums}
+.asset-meta{font-size:11px;line-height:1.8;color:#6a7e95;word-break:break-word}
+.asset-actions{margin-top:18px;border-top:1px solid #e9edf4;padding-top:13px;display:flex;align-items:center;gap:15px;flex-wrap:wrap}
+.asset-actions span{font-size:11px;color:#667b93}.asset-actions code{color:#2f548e}
+.asset-note{font-size:11px;color:#77869c;line-height:1.9;margin-top:16px}
+@media(max-width:760px){.asset-panel{padding:12px}.asset-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#asset-chart{height:400px}.asset-controls button{padding:6px 9px}.asset-head{align-items:start;flex-direction:column}}
