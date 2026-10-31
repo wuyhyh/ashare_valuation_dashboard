@@ -72,12 +72,20 @@ def decomposition_fixture(index_code, metric, horizon):
     multiple_log = 100 * math.log(1 + multiple_change)
     return {
         "index": index_code, "name": INDEX_NAMES[index_code], "metric": metric, "horizon": horizon,
-        "label": label, "start": series[0]["date"], "end": series[-1]["date"], "matched_count": 760,
+        "label": label, "start": series[0]["date"], "end": series[-1]["date"],
+        "frequency": "monthly", "matched_count": 37, "expected_periods": 37,
+        "coverage_ratio": 1.0, "max_missing_consecutive_periods": 0,
         "lag_days": 3, "price_source": "浏览器测试模拟指数响应", "valuation_source": "浏览器测试模拟估值响应",
         "method": "log-return, exact: test fixture", "warnings": ["自动化测试：隐含代理不是实际利润或净资产"],
         "changes_pct": {"close": 20, "multiple": 100 * multiple_change, "implied": 100 * implied_change},
         "log_contributions_pp": {"close": close_log, "multiple": multiple_log, "implied": close_log - multiple_log},
         "series": series,
+        "context": {"readiness": [
+            {"horizon": "1y", "status": "computable", "matched_count": 13},
+            {"horizon": "3y", "status": "computable", "matched_count": 37},
+            {"horizon": "5y", "status": "computable", "matched_count": 61},
+            {"horizon": "10y", "status": "history_insufficient", "message": "历史覆盖不足"},
+        ]},
     }
 
 
@@ -155,7 +163,8 @@ def main():
             metric = params.get("metric", ["pe_ttm"])[0]
             horizon = params.get("horizon", ["3y"])[0]
             if horizon == "10y":
-                payload = {"error": "10y 历史覆盖不足或起点附近没有同日观测", "index": index_code, "metric": metric, "horizon": horizon}
+                context = decomposition_fixture(index_code, metric, "3y")["context"]
+                payload = {"error": "10y 历史覆盖不足或起点附近没有同日观测", "index": index_code, "metric": metric, "horizon": horizon, "context": context}
                 route.fulfill(status=422, content_type="application/json", body=json.dumps(payload, ensure_ascii=False))
                 return
             route.fulfill(status=200, content_type="application/json", body=json.dumps(decomposition_fixture(index_code, metric, horizon), ensure_ascii=False))
@@ -191,7 +200,9 @@ def main():
 
         page.locator("button[data-mode='drivers']").click()
         page.wait_for_function("document.getElementById('drivers-series-chart').data?.length === 3")
-        assert "760 个同日样本" in page.locator("#drivers-date").text_content()
+        assert "37 个同日样本" in page.locator("#drivers-date").text_content()
+        assert "月频归因" in page.locator("#drivers-meta").text_content()
+        assert "10年历史不足" in page.locator("#drivers-readiness").text_content()
         assert page.locator("#drivers-warning").is_visible()
         assert page.locator(".cards").is_hidden()
         page.locator("button[data-metric='pb']").click()
@@ -207,7 +218,7 @@ def main():
         page.locator("#maximize-chart").click()
         page.wait_for_function("document.getElementById('analysis-card').classList.contains('analysis-maximized')")
         assert page.locator("#drivers-series-chart").is_visible() and page.locator("#drivers-bars-chart").is_visible()
-        page.locator("#analysis-card").screenshot(path=ARTIFACTS / "v0.6-decomposition.png")
+        page.locator("#analysis-card").screenshot(path=ARTIFACTS / "v0.7-monthly-attribution.png")
         page.locator("#maximize-chart").click()
         page.wait_for_function("!document.getElementById('analysis-card').classList.contains('analysis-maximized')")
 
@@ -261,7 +272,7 @@ def main():
         page.locator("button[data-mode='drivers']").click()
         page.wait_for_function("document.getElementById('drivers-series-chart').data?.length === 3")
         assert page.locator("#drivers-series-chart").bounding_box()["width"] <= 370
-        page.locator("#analysis-card").screenshot(path=ARTIFACTS / "v0.6-decomposition-mobile.png")
+        page.locator("#analysis-card").screenshot(path=ARTIFACTS / "v0.7-monthly-attribution-mobile.png")
         assert page_errors == [], page_errors
         browser.close()
 

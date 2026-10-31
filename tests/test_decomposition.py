@@ -1,5 +1,6 @@
 """Deterministic decomposition fixtures; never used as live market data."""
 from datetime import date, timedelta
+from calendar import monthrange
 import math
 from pathlib import Path
 import sys
@@ -30,6 +31,26 @@ def fixture(years=4, source="fixture"):
         for index, value in enumerate(days)
     ]
     return prices, multiples
+
+
+def monthly_fixture(years=11, source="fixture"):
+    prices, _ = fixture(years=years, source=source)
+    end = date(2026, 10, 30)
+    start_year = end.year - years
+    month_dates = []
+    for absolute_month in range(start_year * 12 + 9, end.year * 12 + end.month):
+        year, month_zero = divmod(absolute_month, 12)
+        month = month_zero + 1
+        current = date(year, month, monthrange(year, month)[1])
+        while current.weekday() >= 5:
+            current -= timedelta(days=1)
+        month_dates.append(current.isoformat())
+    denominator = len(month_dates) - 1
+    valuations = [
+        {"date": value, "value": 12 * math.exp(math.log(1.4) * index / denominator), "source": source}
+        for index, value in enumerate(month_dates)
+    ]
+    return prices, valuations
 
 
 def test_date_shift_uses_calendar_months():
@@ -110,3 +131,51 @@ def test_dashboard_api_adapter_reads_current_active_series(tmp_path, monkeypatch
     assert result["name"] == "沪深300"
     assert result["matched_count"] > 700
     assert result["series"][0]["date"] == result["start"]
+
+
+@pytest.mark.parametrize("horizon", ["1y", "3y", "5y", "10y"])
+def test_monthly_valuation_with_daily_prices_is_supported(horizon):
+    prices, multiples = monthly_fixture()
+    result = analyze(prices, multiples, horizon=horizon, frequency="monthly")
+    contribution = result["log_contributions_pp"]
+    assert abs(contribution["multiple"] + contribution["implied"] - contribution["close"]) < 1e-10
+    assert result["frequency"] == "monthly"
+    assert result["coverage_ratio"] >= .75
+    assert result["max_missing_consecutive_periods"] == 0
+    assert result["matched_count"] == result["expected_periods"]
+
+
+def test_monthly_rejects_three_consecutive_missing_months():
+    prices, multiples = monthly_fixture()
+    multiples = [row for row in multiples if not ("2025-03-01" <= row["date"] <= "2025-05-31")]
+    with pytest.raises(ValueError, match="连续缺失 3"):
+        analyze(prices, multiples, horizon="3y", frequency="monthly")
+
+
+def test_monthly_rejects_insufficient_history():
+    prices, multiples = monthly_fixture()
+    multiples = multiples[-20:]
+    with pytest.raises(ValueError, match="历史覆盖不足"):
+        analyze(prices, multiples, horizon="3y", frequency="monthly")
+
+
+def test_monthly_observations_misclassified_as_daily_are_rejected():
+    prices, multiples = monthly_fixture()
+    with pytest.raises(ValueError, match="误分类"):
+        analyze(prices, multiples, horizon="1y", frequency="daily")
+
+
+def test_dashboard_api_adapter_uses_stored_monthly_frequency(tmp_path, monkeypatch):
+    import app as dashboard
+    from data_sources.history import import_history
+
+    prices, multiples = monthly_fixture()
+    database = tmp_path / "monthly-adapter.sqlite3"
+    import_history("000300", "index_close", prices, "fixture market", db_path=database)
+    import_history("000300", "pe_ttm", multiples, "fixture valuation", db_path=database)
+    monkeypatch.setattr(dashboard, "DB", database)
+
+    result = dashboard.get_decomposition_data("000300", "pe_ttm", "10y")
+    assert result["frequency"] == "monthly"
+    assert result["matched_count"] == 121
+    assert all(item["status"] == "computable" for item in result["context"]["readiness"])

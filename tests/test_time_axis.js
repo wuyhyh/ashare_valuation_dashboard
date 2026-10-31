@@ -10,7 +10,7 @@ const ids=[
   "chart-title","chart-subtitle","last-date","data-source","current","current-note","pct","pct-note","z","mean","mean-note","n-data","low","avg","high","std","signal-label","signal-text",
   "footer-status","demo-banner","error-banner","refresh","refresh-market","choose-file","file","file-name","export","idx","metric","analysis-mode","window","stats-window","chart","compare-chart",
   "stats-range","stats-count","ten-year-extremes","ten-year-deviation","date-match-status","comparison-warning","comparison-table-body","reset-zoom","maximize-chart",
-  "drivers-window","drivers-title","drivers-date","drivers-price","drivers-multiple","drivers-implied","drivers-implied-label","drivers-warning","drivers-meta","drivers-series-chart","drivers-bars-chart"
+  "drivers-window","drivers-readiness","drivers-title","drivers-date","drivers-price","drivers-multiple","drivers-implied","drivers-implied-label","drivers-warning","drivers-meta","drivers-series-chart","drivers-bars-chart"
 ];
 function classList(){const values=new Set();return{toggle(name,on){if(on===undefined)on=!values.has(name);on?values.add(name):values.delete(name);return on;},contains(name){return values.has(name);},add(name){values.add(name);},remove(name){values.delete(name);}};}
 function element(id){
@@ -78,9 +78,11 @@ assert.match(element("comparison-warning").textContent,/缺少真实序列/);
 assert.match(element("comparison-warning").textContent,/比较条形图已排除/);
 assert.match(element("comparison-table-body").innerHTML,/不参与比较/);
 
-context.driverPayload={index:"000300",name:"沪深300",metric:"pe_ttm",horizon:"3y",label:"隐含盈利代理",start:"2023-10-30",end:"2026-10-30",matched_count:700,lag_days:1,price_source:"fixture.index_close",valuation_source:"fixture.pe_ttm",method:"log-return exact",warnings:["隐含代理不是实际利润"],changes_pct:{close:20,multiple:50,implied:-20},log_contributions_pp:{close:18.232155679,multiple:40.546510811,implied:-22.314355132},series:[{date:"2023-10-30",index:100,multiple:100,implied:100},{date:"2026-10-30",index:120,multiple:150,implied:80}]};
+context.driverPayload={index:"000300",name:"沪深300",metric:"pe_ttm",horizon:"3y",label:"隐含盈利代理",start:"2023-10-30",end:"2026-10-30",frequency:"monthly",matched_count:37,expected_periods:37,coverage_ratio:1,max_missing_consecutive_periods:0,lag_days:1,price_source:"fixture.index_close",valuation_source:"fixture.pe_ttm",method:"log-return exact",warnings:["隐含代理不是实际利润"],context:{readiness:[{horizon:"1y",status:"computable",matched_count:13},{horizon:"3y",status:"computable",matched_count:37},{horizon:"5y",status:"history_insufficient",message:"历史不足"},{horizon:"10y",status:"collection_failed",message:"采集失败"}]},changes_pct:{close:20,multiple:50,implied:-20},log_contributions_pp:{close:18.232155679,multiple:40.546510811,implied:-22.314355132},series:[{date:"2023-10-30",index:100,multiple:100,implied:100},{date:"2026-10-30",index:120,multiple:150,implied:80}]};
 run("state.mode='drivers';state.driverData=driverPayload;renderDrivers()");
-assert.strictEqual(element("drivers-date").textContent,"2023-10-30 — 2026-10-30 · 700 个同日样本");
+assert.strictEqual(element("drivers-date").textContent,"2023-10-30 — 2026-10-30 · 37 个同日样本");
+assert.match(element("drivers-meta").textContent,/月频归因/);
+assert.match(element("drivers-readiness").innerHTML,/采集失败/);
 assert.strictEqual(element("drivers-price").textContent,"+20.00%");
 assert.strictEqual(element("drivers-multiple").textContent,"+50.00%");
 assert.strictEqual(element("drivers-implied").textContent,"-20.00%");
@@ -101,4 +103,4 @@ assert.ok(element("analysis-card").classList.contains("analysis-maximized"));
 run("toggleMaximize()");
 assert.strictEqual(run("state.isMaximized"),false);
 assert.ok(resizeCalls>=2);
-console.log("v0.6 state, time-axis, comparison and decomposition tests: OK");
+console.log("v0.7 state, time-axis, comparison and monthly decomposition tests: OK");

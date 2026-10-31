@@ -9,7 +9,9 @@ import unittest
 from data_sources.history import DataSourceError, validate_history
 from data_sources.market import (
     METHODOLOGY,
+    cross_validate_sources,
     fetch_index_history,
+    import_index_history,
     read_index_history,
     update_index_history,
     validate_index_history,
@@ -93,6 +95,55 @@ class MarketPipelineTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(DataSourceError, "列结构已变化"):
             fetch_index_history("000300", provider=provider, retries=1)
+
+    def test_sina_columns_are_normalized_without_changing_semantics(self):
+        provider = lambda *_: {
+            "version": "test", "columns": ["date", "open", "close"],
+            "records": [{"date": "2026-01-05", "open": 4000, "close": 4012.5}],
+        }
+        from unittest.mock import patch
+        with patch("data_sources.market._call_provider", side_effect=lambda *args: provider()):
+            result = fetch_index_history("000300", provider_name="sina", retries=1)
+        self.assertEqual(result["rows"], [("2026-01-05", 4012.5)])
+        self.assertEqual(result["source_interface"], "ak.stock_zh_index_daily")
+
+    def test_cross_validation_records_five_real_dates_and_differences(self):
+        rows = daily_rows(count=10)
+        primary = {**fetched(rows), "source_interface": "primary"}
+        secondary = {**fetched([(day, value + .01) for day, value in rows]), "source_interface": "secondary"}
+        result = cross_validate_sources(primary, secondary)
+        self.assertEqual(result["sample_count"], 5)
+        self.assertEqual(len(result["samples"]), 5)
+        self.assertIn(result["status"], ("passed", "warning"))
+
+    def test_auto_provider_falls_back_after_bounded_failure(self):
+        from unittest.mock import patch
+        calls = []
+
+        def caller(provider_name, *_):
+            calls.append(provider_name)
+            if provider_name == "sina":
+                raise DataSourceError("simulated upstream failure")
+            return {
+                "version": "test", "columns": ["date", "close"],
+                "records": [{"date": "2026-01-05", "close": 4012.5}],
+            }
+
+        with patch("data_sources.market._call_provider", side_effect=caller):
+            result = fetch_index_history("000300", provider_name="auto")
+        self.assertEqual(calls, ["sina", "tencent"])
+        self.assertEqual(result["provider"], "tencent")
+
+    def test_controlled_csv_import_keeps_declared_source_separate(self):
+        rows = daily_rows(count=30)
+        result = import_index_history(
+            "000300", rows, "独立文件供应方", "已人工核对指数代码与收盘字段", db_path=self.db,
+        )
+        stored, status = read_index_history(self.db, "000300")
+        self.assertEqual(result["count"], 30)
+        self.assertEqual(len(stored), 30)
+        self.assertEqual(status["source_interface"], "local.csv.index_close")
+        self.assertIn("不标记为官方数据", status["methodology"])
 
     def test_market_validation_deduplicates_and_keeps_large_moves(self):
         quality = validate_index_history([
