@@ -7,7 +7,9 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
+from data_sources import history as history_module
 from data_sources.history import (
     DataSourceError,
     INDEX_NAMES,
@@ -102,6 +104,40 @@ class FourIndexValuationContractTests(unittest.TestCase):
 
                     with self.assertRaises(DataSourceError):
                         fetch_history(code, metric, provider=broken_provider, retries=1)
+
+    def test_worker_drains_queue_before_join(self):
+        events = []
+
+        class FakeQueue:
+            def get(self, timeout):
+                events.append("get")
+                return {"ok": True, "records": [], "columns": [], "version": "fixture"}
+
+            def close(self):
+                events.append("queue_close")
+
+        class FakeProcess:
+            def start(self):
+                events.append("start")
+
+            def join(self, timeout):
+                events.append("join")
+
+            def is_alive(self):
+                return False
+
+        class FakeContext:
+            def Queue(self, maxsize):
+                return FakeQueue()
+
+            def Process(self, target, args, daemon):
+                return FakeProcess()
+
+        with patch.object(history_module.multiprocessing, "get_context", return_value=FakeContext()):
+            result = history_module._call_akshare("沪深300", "pe_ttm", timeout_seconds=5)
+        self.assertTrue(result["ok"])
+        self.assertLess(events.index("get"), events.index("join"))
+        self.assertIn("queue_close", events)
 
     def test_unknown_index_not_accepted(self):
         with self.assertRaises(DataSourceError):
