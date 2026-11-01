@@ -10,6 +10,7 @@ const scopeBoards={
 };
 let payload=null;
 let trendSequence=0;
+let linkageSequence=0;
 const SVG_NS="http://www.w3.org/2000/svg";
 function svgTag(name,attrs,text){
   const node=document.createElementNS(SVG_NS,name);
@@ -40,6 +41,24 @@ function drawTrend(points){
     segment.push((segment.length?"L":"M")+xx.toFixed(1)+" "+yy.toFixed(1));
   });
   flush();
+  const drawAverage=(field,color,width)=>{
+    let averageSegment=[];
+    const flushAverage=()=>{
+      if(averageSegment.length>=2)svg.append(svgTag("path",{
+        d:averageSegment.join(" "),fill:"none",stroke:color,"stroke-width":width,
+        "stroke-linejoin":"round","stroke-linecap":"round"
+      }));
+      averageSegment=[];
+    };
+    points.forEach((point,i)=>{
+      if(point[field]==null){flushAverage();return;}
+      if(i && (Date.parse(point.trading_date+"T00:00:00Z")-Date.parse(points[i-1].trading_date+"T00:00:00Z"))>7*86400000)flushAverage();
+      averageSegment.push((averageSegment.length?"L":"M")+x(i).toFixed(1)+" "+y(point[field]).toFixed(1));
+    });
+    flushAverage();
+  };
+  drawAverage("advance_ratio_ma5","#f09b3d",2.2);
+  drawAverage("advance_ratio_ma20","#845ec2",2.2);
   points.forEach((point,i)=>{
     const dot=svgTag("circle",{cx:x(i),cy:y(point.advance_ratio),r:3,fill:"#397ce0"});
     dot.append(svgTag("title",{},point.trading_date+" · 上涨 "+(point.advance_ratio*100).toFixed(1)+"% · 成交 "+point.traded_count+"只"));
@@ -62,7 +81,9 @@ async function loadTrend(){
     const data=await response.json();
     if(request!==trendSequence)return;
     count.textContent="有效交易日："+(data.point_count||0);
-    info.textContent=data.message||"未提供经过核验的历史数据。";
+    const averages=data.moving_averages||{};
+    const averageNote=averages.ma20_ready?" · 已显示5/20个核验交易日均线":averages.ma5_ready?" · 已显示5个核验交易日均线；20日样本不足":"";
+    info.textContent=(data.message||"未提供经过核验的历史数据。")+averageNote;
     if(data.available && Array.isArray(data.observations) && data.observations.length>=2){
       drawTrend(data.observations);
       chart.hidden=false;empty.hidden=true;
@@ -74,6 +95,40 @@ async function loadTrend(){
     count.textContent="有效交易日：—";
     empty.textContent="历史数据读取失败："+error.message;
     info.textContent="读取失败不会启用演示或伪造历史曲线。";
+  }
+}
+
+async function loadLinkage(){
+  const request=++linkageSequence;
+  const scope=elem("breadth-exchange").value;
+  const exclude=elem("breadth-no-st").checked?"1":"0";
+  const status=elem("breadth-linkage-status"),results=elem("breadth-linkage-results");
+  status.textContent="正在检查严格同日样本…";results.hidden=true;results.replaceChildren();
+  try{
+    const query=new URLSearchParams({scope,exclude_st:exclude,limit:"180"});
+    const response=await fetch("/api/breadth-linkage?"+query,{cache:"no-store"});
+    if(!response.ok)throw new Error("HTTP "+response.status);
+    const data=await response.json();
+    if(request!==linkageSequence)return;
+    status.textContent=data.message||"没有达到联动门槛的严格同日样本。";
+    const labels={"000300":"沪深300","000905":"中证500","000852":"中证1000"};
+    for(const [code,item] of Object.entries(data.indices||{})){
+      const messages=[];
+      if(item.divergence?.available)messages.push("20日背离样本已就绪");
+      for(const [metric,relation] of Object.entries(item.valuation_relationship||{})){
+        if(relation.available)messages.push((metric==="pe_ttm"?"PE":"PB")+"同日 "+relation.common_dates+"期");
+      }
+      if(messages.length){
+        const chip=document.createElement("span");
+        chip.textContent=(labels[code]||code)+"："+messages.join(" · ");
+        results.append(chip);
+      }
+    }
+    results.className="breadth-linkage-results";
+    results.hidden=!results.childElementCount;
+  }catch(error){
+    if(request!==linkageSequence)return;
+    status.textContent="联动状态读取失败："+error.message+"；不会生成替代结果。";
   }
 }
 
@@ -164,11 +219,11 @@ async function reload(){
   try{
     const response=await fetch("/api/breadth",{cache:"no-store"});
     if(!response.ok)throw new Error("HTTP "+response.status);
-    payload=await response.json();render();await loadTrend();
+    payload=await response.json();render();await Promise.all([loadTrend(),loadLinkage()]);
   }catch(error){payload={available:false,message:"读取真实快照失败："+error.message};render();}
 }
-elem("breadth-exchange").addEventListener("change",()=>{render();loadTrend();});
-elem("breadth-no-st").addEventListener("change",()=>{render();loadTrend();});
+elem("breadth-exchange").addEventListener("change",()=>{render();loadTrend();loadLinkage();});
+elem("breadth-no-st").addEventListener("change",()=>{render();loadTrend();loadLinkage();});
 elem("breadth-reload").addEventListener("click",reload);
-for(const button of document.querySelectorAll("#breadth-board-grid button"))button.addEventListener("click",()=>{selectScope(button.dataset.scope);loadTrend();});
+for(const button of document.querySelectorAll("#breadth-board-grid button"))button.addEventListener("click",()=>{selectScope(button.dataset.scope);loadTrend();loadLinkage();});
 reload();

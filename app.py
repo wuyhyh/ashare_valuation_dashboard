@@ -41,7 +41,11 @@ from data_sources.storage import connect as storage_connect
 from decomposition import analyze
 from breadth import DEFAULT_DB as BREADTH_DB, latest_report as breadth_latest_report, update_from_akshare as breadth_update_from_akshare
 from breadth_history import breadth_trend
-from breadth_close_verify import verify_close as breadth_verify_close
+from breadth_linkage import breadth_linkage
+from breadth_close_verify import (
+    diagnose_reference_source as breadth_diagnose_reference_source,
+    verify_close as breadth_verify_close,
+)
 from asset_watch import DEFAULT_DB as ASSETS_DB, ASSETS as WATCH_ASSETS, overview as asset_overview, report as asset_report, update_history as asset_update_history
 
 ROOT = Path(__file__).resolve().parent
@@ -420,6 +424,20 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OverflowError) as exc:
                 return response(self, 400, {"error": str(exc)})
             return response(self, 200, result)
+        if p.path == "/api/breadth-linkage":
+            scope = params.get("scope", ["SH_SZ_ALL"])[0]
+            st = params.get("exclude_st", ["0"])[0]
+            limit_value = params.get("limit", ["180"])[0]
+            if st not in ("0", "1"):
+                return response(self, 400, {"error": "exclude_st 只允许 0/1"})
+            try:
+                result = breadth_linkage(
+                    BREADTH_DB, DB, scope=scope, exclude_st=(st == "1"),
+                    limit=int(limit_value),
+                )
+            except (ValueError, OverflowError) as exc:
+                return response(self, 400, {"error": str(exc)})
+            return response(self, 200, result)
         if p.path == "/api/runtime":
             return response(self, 200, get_runtime_info())
         if p.path == "/api/status":
@@ -539,6 +557,14 @@ def main():
                                help="独立参考日线来源，必须与市场快照来源不同")
     verify_parser.add_argument("--dry-run", action="store_true",
                                help="仅联网核验并打印结果，不修改本地SQLite快照")
+    reference_doctor = sub.add_parser(
+        "breadth-reference-doctor",
+        help="只诊断独立逐股日线接口；不比较或升级任何市场宽度快照",
+    )
+    reference_doctor.add_argument("--day", required=True, help="已结束的沪深工作日 YYYY-MM-DD")
+    reference_doctor.add_argument("--reference", choices=["sina", "eastmoney"], default="sina")
+    reference_doctor.add_argument("--capture-id", default=None, help="仅用于选取跨板块样本身份")
+    reference_doctor.add_argument("--timeout", type=int, default=150, help="总超时秒数（1—300）")
     doctor = sub.add_parser("doctor", help="无需联网：查看当前源码、SQLite 路径与12条真实数据的覆盖情况")
     sync_parser = sub.add_parser("sync", help="显式联网更新四指数点位及PE/PB；启动服务本身不会更新")
     sync_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="csindex_official")
@@ -609,6 +635,17 @@ def main():
             return 0
         except Exception as exc:
             print(f"独立收盘验证失败（不会将快照视为真实收盘历史）：{exc}", file=sys.stderr)
+            return 1
+    elif args.command == "breadth-reference-doctor":
+        try:
+            report = breadth_diagnose_reference_source(
+                BREADTH_DB, day=args.day, reference_provider=args.reference,
+                capture_id=args.capture_id, timeout_seconds=args.timeout,
+            )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0 if report["status"] == "reference_source_usable" else 1
+        except Exception as exc:
+            print(f"独立日线接口诊断失败（不会修改数据库）：{exc}", file=sys.stderr)
             return 1
     elif args.command == "doctor":
         print(json.dumps({

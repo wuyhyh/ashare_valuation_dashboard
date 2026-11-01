@@ -4,7 +4,7 @@ The tests validate only the contract, not live market-data verification.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
 import tempfile
@@ -162,3 +162,24 @@ def test_history_endpoint_is_read_only_and_rejects_invalid_query():
                 server.server_close()
                 worker.join(timeout=3)
         assert db.stat().st_size == before
+
+
+def test_verified_session_moving_averages_require_enough_dense_real_dates():
+    with tempfile.TemporaryDirectory() as temp:
+        db = Path(temp) / "breadth.sqlite3"
+        days = []
+        cursor = date(2026, 9, 21)
+        while len(days) < 20:
+            if cursor.weekday() < 5:
+                days.append(cursor.isoformat())
+            cursor += timedelta(days=1)
+        for day in days:
+            breadth.persist_capture(capture(day), db)
+        result = breadth_trend(db, limit=30)
+        assert result["available"] is True and result["point_count"] == 20
+        assert result["observations"][3]["advance_ratio_ma5"] is None
+        assert result["observations"][4]["advance_ratio_ma5"] == pytest.approx(.4)
+        assert result["observations"][18]["advance_ratio_ma20"] is None
+        assert result["observations"][19]["advance_ratio_ma20"] == pytest.approx(.4)
+        assert result["moving_averages"]["ma5_ready"] is True
+        assert result["moving_averages"]["ma20_ready"] is True

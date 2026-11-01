@@ -19,6 +19,8 @@ MAX_RELATIVE_DIFF = 0.0005  # 0.05% maximum relative close disagreement
 HISTORY_CALCULATION_VERSION = "v011-breadth-v1"
 EVIDENCE_METHOD = "independent_stock_daily_close_crosscheck"
 MAX_POINTS = 180
+MOVING_AVERAGE_WINDOWS = (5, 20)
+MAX_ROLLING_GAP_DAYS = 7
 
 
 def _eligible(capture: dict, scope: str) -> bool:
@@ -93,6 +95,10 @@ def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
         "observations": [], "point_count": 0, "required_points": 2,
         "source_interface": None, "coverage_scope": None,
         "calculation_version": HISTORY_CALCULATION_VERSION,
+        "moving_averages": {
+            "windows": list(MOVING_AVERAGE_WINDOWS), "definition": "verified_session_simple_mean",
+            "max_gap_days": MAX_ROLLING_GAP_DAYS, "ma5_ready": False, "ma20_ready": False,
+        },
         "message": "尚无至少两个具有独立收盘价核验证据的可比交易日；当前行情快照不能绘制历史趋势",
     }
     path = Path(db_path)
@@ -148,11 +154,28 @@ def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
                 "median_change_pct": metrics["median_change_pct"],
                 "turnover_weighted_change_pct": metrics["turnover_weighted_change_pct"],
             })
+        for index, point in enumerate(points):
+            for window in MOVING_AVERAGE_WINDOWS:
+                field = f"advance_ratio_ma{window}"
+                if index + 1 < window:
+                    point[field] = None
+                    continue
+                sample = points[index + 1 - window:index + 1]
+                dates = [date.fromisoformat(item["trading_date"]) for item in sample]
+                gaps = [(right - left).days for left, right in zip(dates, dates[1:])]
+                point[field] = (
+                    sum(item["advance_ratio"] for item in sample) / window
+                    if all(gap <= MAX_ROLLING_GAP_DAYS for gap in gaps) else None
+                )
         result.update({
             "observations": points,
             "point_count": len(points),
             "available": len(points) >= 2,
             "source_interface": cohort[0], "coverage_scope": cohort[1],
+        })
+        result["moving_averages"].update({
+            "ma5_ready": any(point["advance_ratio_ma5"] is not None for point in points),
+            "ma20_ready": any(point["advance_ratio_ma20"] is not None for point in points),
         })
         if len(points) >= 2:
             result["message"] = (

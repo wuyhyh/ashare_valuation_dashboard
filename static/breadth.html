@@ -81,13 +81,19 @@
           <div id="breadth-trend-chart" hidden>
             <svg id="breadth-trend-svg" viewBox="0 0 880 235" role="img" aria-label="经独立核验的交易日上涨比例折线图"></svg>
             <div class="breadth-trend-dates"><span id="breadth-trend-start">—</span><span id="breadth-trend-end">—</span></div>
+            <div class="breadth-trend-legend"><span class="raw">上涨比例</span><span class="ma5">5日均线</span><span class="ma20">20日均线</span></div>
           </div>
           <p id="breadth-trend-info" class="breadth-trend-info">未经验证的采集时刻不会绘图；暂不进行历史估值联动或择时判断。</p>
+          <div class="breadth-linkage" aria-live="polite">
+            <strong>指数 / 估值联动</strong>
+            <span id="breadth-linkage-status">正在检查严格同日样本…</span>
+            <div id="breadth-linkage-results" hidden></div>
+          </div>
         </section>
         <p class="breadth-foot">方法论：市场统计范围与个人交易权限分离。同一快照仅使用一个行情源和一个采集时点，逐板与交易所官方名录核对；689 CDR 不计入默认 A 股分母。未交易和缺失样本单独展示，上涨占比不是买卖信号。</p>
       </div>
     </main>
   </div>
-  <script src="/breadth.js?v=0.11"></script>
+  <script src="/breadth.js?v=0.11.1"></script>
 </body>
 </html>

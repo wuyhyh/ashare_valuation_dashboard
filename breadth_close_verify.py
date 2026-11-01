@@ -7,7 +7,7 @@ provider's actual *dated*, unadjusted individual stock daily closes.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import json
 import math
 import multiprocessing
@@ -20,10 +20,17 @@ from breadth import CHINA_TZ, SH_SZ_BOARDS
 from breadth_history import EVIDENCE_METHOD, HISTORY_CALCULATION_VERSION, MAX_RELATIVE_DIFF
 
 REFERENCE_PROVIDERS = {
-    "sina": ("ak.stock_zh_a_daily", "date", "close"),
-    "eastmoney": ("ak.stock_zh_a_hist", "日期", "收盘"),
+    "sina": {
+        "interface": "ak.stock_zh_a_daily", "date_field": "date", "close_field": "close",
+        "adjustment": "none", "symbol_format": "exchange-prefixed",
+    },
+    "eastmoney": {
+        "interface": "ak.stock_zh_a_hist", "date_field": "日期", "close_field": "收盘",
+        "adjustment": "none", "symbol_format": "six-digit",
+    },
 }
 SAMPLES_PER_BOARD = 5
+MAX_CHANGE_DIFF_PERCENTAGE_POINTS = 0.02
 
 
 class CloseVerificationError(ValueError):
@@ -34,28 +41,67 @@ def _reference_worker(codes: list[tuple[str, str]], day: str, provider: str, out
     try:
         import akshare as ak
         values = {}
+        diagnostics = {}
+        errors = []
+        requested_day = date.fromisoformat(day)
+        start_day = (requested_day - timedelta(days=10)).strftime("%Y%m%d")
+        end_day = requested_day.strftime("%Y%m%d")
+        provider_info = REFERENCE_PROVIDERS[provider]
         for code, exchange in codes:
-            if provider == "sina":
-                frame = ak.stock_zh_a_daily(
-                    symbol=("sh" if exchange == "SH" else "sz") + code,
-                    start_date=day.replace("-", ""), end_date=day.replace("-", ""), adjust="",
-                )
-            else:
-                frame = ak.stock_zh_a_hist(
-                    symbol=code, period="daily",
-                    start_date=day.replace("-", ""), end_date=day.replace("-", ""), adjust="",
-                )
-            date_key, close_key = REFERENCE_PROVIDERS[provider][1:]
-            if frame is not None and not frame.empty and {date_key, close_key}.issubset(frame.columns):
-                rows = frame.to_dict(orient="records")
-                values[code] = [
-                    {"date": str(r[date_key])[:10], "close": float(r[close_key])}
-                    for r in rows
-                ]
-            else:
+            started = clock.monotonic()
+            try:
+                if provider == "sina":
+                    frame = ak.stock_zh_a_daily(
+                        symbol=("sh" if exchange == "SH" else "sz") + code,
+                        start_date=start_day, end_date=end_day, adjust="",
+                    )
+                else:
+                    frame = ak.stock_zh_a_hist(
+                        symbol=code, period="daily",
+                        start_date=start_day, end_date=end_day, adjust="",
+                    )
+                date_key = provider_info["date_field"]
+                close_key = provider_info["close_field"]
+                columns = [] if frame is None else list(frame.columns)
+                diagnostics[code] = {
+                    "exchange": exchange, "columns": columns,
+                    "elapsed_seconds": round(clock.monotonic() - started, 3),
+                    "row_count": 0 if frame is None else len(frame),
+                }
+                if frame is None or frame.empty or not {date_key, close_key}.issubset(columns):
+                    values[code] = []
+                    errors.append({
+                        "code": code,
+                        "error": "empty response" if frame is None or frame.empty else "required fields missing",
+                        "columns": columns,
+                    })
+                else:
+                    values[code] = [
+                        {"date": str(r[date_key])[:10], "close": float(r[close_key])}
+                        for r in frame.to_dict(orient="records")
+                    ]
+            except Exception as exc:
                 values[code] = []
+                diagnostics[code] = {
+                    "exchange": exchange, "columns": [],
+                    "elapsed_seconds": round(clock.monotonic() - started, 3), "row_count": 0,
+                }
+                errors.append({"code": code, "error": f"{type(exc).__name__}: {exc}"})
+                if type(exc).__name__ == "Push2RateLimitError":
+                    break
             clock.sleep(0.75)  # conservative request spacing to limit provider pressure
-        out.put({"ok": True, "rows": values, "akshare_version": getattr(ak, "__version__", "unknown")})
+        common_columns = sorted({column for item in diagnostics.values() for column in item["columns"]})
+        out.put({
+            "ok": not errors, "rows": values, "errors": errors,
+            "akshare_version": getattr(ak, "__version__", "unknown"),
+            "reference_interface": provider_info["interface"],
+            "adjustment": provider_info["adjustment"],
+            "symbol_format": provider_info["symbol_format"],
+            "date_field": provider_info["date_field"], "close_field": provider_info["close_field"],
+            "request_start_date": (requested_day - timedelta(days=10)).isoformat(),
+            "request_end_date": requested_day.isoformat(),
+            "native_columns": common_columns, "request_diagnostics": diagnostics,
+        })
     except Exception as exc:
         out.put({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
@@ -85,8 +131,87 @@ def fetch_independent_daily(
             process.join(timeout=3)
         messages.close()
     if not result.get("ok"):
-        raise CloseVerificationError("独立日线核验失败：" + str(result.get("error")))
+        errors = result.get("errors") or []
+        detail = json.dumps(errors[:3], ensure_ascii=False) if errors else str(result.get("error"))
+        raise CloseVerificationError("独立日线核验失败：" + detail)
     return result
+
+
+def diagnose_reference_source(
+    db_path: str | Path, *, day: str, reference_provider: str,
+    capture_id: str | None = None, timeout_seconds: int = 150,
+) -> dict:
+    """Probe a dated reference source without comparing or promoting a capture.
+
+    The sample identity comes from the selected current capture only to exercise
+    the interfaces. It must never be treated as a point-in-time historical pool.
+    """
+    try:
+        requested_day = date.fromisoformat(day)
+    except (TypeError, ValueError) as exc:
+        raise CloseVerificationError("诊断日期必须是 YYYY-MM-DD") from exc
+    local_now = datetime.now(CHINA_TZ)
+    if (requested_day.weekday() >= 5 or requested_day > local_now.date()
+            or (requested_day == local_now.date() and local_now.time() < time(15, 30))):
+        raise CloseVerificationError("参考源诊断日期必须是已结束的沪深工作日")
+    path = Path(db_path)
+    if not path.is_file():
+        raise CloseVerificationError("本地尚无宽度数据库")
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        capture = db.execute(
+            "SELECT * FROM breadth_captures WHERE capture_id=?" if capture_id else
+            "SELECT * FROM breadth_captures ORDER BY captured_at_utc DESC LIMIT 1",
+            (capture_id,) if capture_id else (),
+        ).fetchone()
+        if capture is None:
+            raise CloseVerificationError("未找到用于选取诊断样本的快照")
+        rows = [dict(row) for row in db.execute(
+            "SELECT * FROM breadth_quotes WHERE capture_id=?", (capture["capture_id"],),
+        )]
+        sampled = _choose_samples(rows)
+    started = clock.monotonic()
+    reference = fetch_independent_daily(
+        [(row["code"], row["exchange"]) for row in sampled], day,
+        reference_provider, timeout_seconds=timeout_seconds,
+    )
+    target_rows = {}
+    previous_rows = {}
+    for row in sampled:
+        records = sorted(reference["rows"].get(row["code"]) or [], key=lambda item: item["date"])
+        target = [item for item in records if item["date"] == day]
+        previous = [item for item in records if item["date"] < day]
+        target_rows[row["code"]] = target[0] if len(target) == 1 else None
+        previous_rows[row["code"]] = previous[-1] if previous else None
+    return {
+        "status": (
+            "reference_source_usable"
+            if all(target_rows.values()) and all(previous_rows.values())
+            else "reference_source_incomplete"
+        ),
+        "reference_provider": reference_provider,
+        "reference_interface": reference["reference_interface"],
+        "akshare_version": str(reference.get("akshare_version", "unknown")),
+        "requested_trading_date": day, "requested_samples": len(sampled),
+        "target_rows": sum(value is not None for value in target_rows.values()),
+        "previous_close_rows": sum(value is not None for value in previous_rows.values()),
+        "elapsed_seconds": round(clock.monotonic() - started, 3),
+        "adjustment": reference["adjustment"], "symbol_format": reference["symbol_format"],
+        "date_field": reference["date_field"], "close_field": reference["close_field"],
+        "native_columns": reference["native_columns"],
+        "request_start_date": reference["request_start_date"],
+        "request_end_date": reference["request_end_date"],
+        "sample_codes": [
+            {"code": row["code"], "exchange": row["exchange"], "board": row["board"],
+             "target": target_rows[row["code"]], "previous": previous_rows[row["code"]]}
+            for row in sampled
+        ],
+        "written": False,
+        "warning": (
+            "仅诊断独立日线接口；样本身份来自当前快照，不能证明历史时点股票池，"
+            "不能升级任何宽度快照或构造历史曲线"
+        ),
+    }
 
 
 def _choose_samples(rows: list[dict]) -> list[dict]:
@@ -185,23 +310,60 @@ def verify_close(
             raise CloseVerificationError(
                 f"{row['code']} 收盘价差 {difference:.4%} 超过阈值，快照不作为收盘历史"
             )
+        previous = sorted(
+            (r for r in records if str(r.get("date"))[:10] < day),
+            key=lambda item: str(item.get("date"))[:10],
+        )
+        if not previous:
+            raise CloseVerificationError(f"{row['code']} 缺少 {day} 之前的未复权收盘，无法核对前收盘")
+        try:
+            previous_close = float(previous[-1]["close"])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise CloseVerificationError(f"{row['code']} 前收盘字段无效") from exc
+        if not math.isfinite(previous_close) or previous_close <= 0:
+            raise CloseVerificationError(f"{row['code']} 前收盘不是有效正数")
+        reference_change = (close / previous_close - 1) * 100
+        try:
+            spot_change = float(row["change_pct"])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise CloseVerificationError(f"{row['code']} 快照涨跌幅字段无效") from exc
+        change_difference = abs(spot_change - reference_change)
+        if not math.isfinite(spot_change) or change_difference > MAX_CHANGE_DIFF_PERCENTAGE_POINTS:
+            raise CloseVerificationError(
+                f"{row['code']} 快照涨跌幅与未复权前收盘推导值相差 "
+                f"{change_difference:.4f} 个百分点"
+            )
         matches.append({
             "code": row["code"], "board": row["board"],
             "spot_close": float(row["price"]), "independent_close": close,
             "relative_diff": difference,
+            "previous_trading_date": str(previous[-1]["date"])[:10],
+            "previous_close": previous_close, "reference_change_pct": reference_change,
+            "spot_change_pct": spot_change,
+            "change_pct_diff": change_difference,
         })
+    provider_info = REFERENCE_PROVIDERS[reference_provider]
     evidence = {
         "status": "passed",
         "method": EVIDENCE_METHOD,
         "calculation_version": HISTORY_CALCULATION_VERSION,
-        "reference_source": REFERENCE_PROVIDERS[reference_provider][0],
+        "reference_source": provider_info["interface"],
         "reference_provider": reference_provider,
         "reference_akshare_version": str(reference.get("akshare_version", "unknown")),
+        "reference_adjustment": str(reference.get("adjustment", provider_info["adjustment"])),
+        "reference_date_field": str(reference.get("date_field", provider_info["date_field"])),
+        "reference_close_field": str(reference.get("close_field", provider_info["close_field"])),
+        "reference_native_columns": list(reference.get("native_columns") or []),
+        "request_start_date": reference.get("request_start_date"),
+        "request_end_date": reference.get("request_end_date"),
         "reference_trading_date": day,
         "checked_samples": len(sampled),
         "matched_samples": len(matches),
         "max_relative_diff": max(match["relative_diff"] for match in matches),
+        "max_change_diff_percentage_points": max(match["change_pct_diff"] for match in matches),
         "checked_boards": list(SH_SZ_BOARDS),
+        "sample_strategy": "five_code_quantiles_per_board_from_valid_traded_a_shares",
+        "samples_per_board": SAMPLES_PER_BOARD,
         "sample_audit": matches,
         "verified_at_utc": datetime.now(timezone.utc).isoformat(),
     }

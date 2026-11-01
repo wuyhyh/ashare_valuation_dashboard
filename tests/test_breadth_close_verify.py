@@ -8,7 +8,7 @@ import tempfile
 import pytest
 
 import breadth
-from breadth_close_verify import CloseVerificationError, verify_close
+from breadth_close_verify import CloseVerificationError, diagnose_reference_source, verify_close
 from breadth_history import breadth_trend
 
 
@@ -37,9 +37,21 @@ def make_capture(day="2026-10-28", *, hour=16, provider="tencent"):
 
 
 def fake_daily(codes, day, provider):
-    return {"ok": True, "akshare_version": "TEST FIXTURE",
-            "rows": {code: [{"date": day, "close": 10+int(code[-3:])*.5}]
-                     for code, _ in codes}}
+    previous = "2026-10-27" if day == "2026-10-28" else "2026-10-28"
+    return {
+        "ok": True, "akshare_version": "TEST FIXTURE",
+        "reference_interface": "TEST FIXTURE ONLY", "adjustment": "none",
+        "symbol_format": "fixture", "date_field": "date", "close_field": "close",
+        "native_columns": ["date", "close", "volume", "amount"],
+        "request_start_date": previous, "request_end_date": day,
+        "rows": {
+            code: [
+                {"date": previous, "close": (10+int(code[-3:])*.5) /
+                 (1 + (-1.0 if int(code[-3:]) % 2 else 1.0) / 100)},
+                {"date": day, "close": 10+int(code[-3:])*.5},
+            ] for code, _ in codes
+        },
+    }
 
 
 def test_dry_run_does_not_promote_or_mutate_and_success_creates_backup():
@@ -60,6 +72,14 @@ def test_dry_run_does_not_promote_or_mutate_and_success_creates_backup():
         assert backup.is_file() and backup.stat().st_size > 0
         with sqlite3.connect(backup) as connection:
             assert connection.execute("SELECT trading_date_verified FROM breadth_captures").fetchone()[0] == 0
+        with sqlite3.connect(db) as connection:
+            quality = json.loads(connection.execute(
+                "SELECT quality_json FROM breadth_captures"
+            ).fetchone()[0])
+        evidence = quality["close_verification"]
+        assert evidence["reference_adjustment"] == "none"
+        assert evidence["sample_strategy"].startswith("five_code_quantiles")
+        assert all(item["previous_close"] > 0 for item in evidence["sample_audit"])
 
 
 def test_independently_checked_close_can_promote_only_hs_four_boards():
@@ -95,9 +115,9 @@ def test_unreliable_reference_is_rejected_without_database_promotion(alter):
             info = fake_daily(codes, day, provider)
             first = codes[0][0]
             if alter == "stale_close":
-                info["rows"][first][0]["close"] = 20.0
+                info["rows"][first][-1]["close"] = 20.0
             elif alter == "wrong_date":
-                info["rows"][first][0]["date"] = "2026-10-27"
+                info["rows"][first][-1]["date"] = "2026-10-27"
             elif alter == "incomplete":
                 info["rows"][first] = []
             else:
@@ -134,4 +154,25 @@ def test_same_provider_cannot_pass_as_independent_and_source_fail_closed():
         breadth.persist_capture(make_capture(provider="sina"), db)
         with pytest.raises(CloseVerificationError, match="不同"):
             verify_close(db, fetcher=fake_daily, reference_provider="sina")
+        assert not breadth_trend(db)["available"]
+
+
+def test_reference_doctor_is_read_only_and_never_promotes_history(monkeypatch):
+    with tempfile.TemporaryDirectory() as folder:
+        db = Path(folder) / "capture.sqlite3"
+        candidate = make_capture("2026-10-28")
+        breadth.persist_capture(candidate, db)
+        original = db.read_bytes()
+        monkeypatch.setattr(
+            "breadth_close_verify.fetch_independent_daily",
+            lambda codes, day, provider, timeout_seconds=150: fake_daily(codes, day, provider),
+        )
+        result = diagnose_reference_source(
+            db, day="2026-10-28", reference_provider="sina",
+        )
+        assert result["status"] == "reference_source_usable"
+        assert result["target_rows"] == 20 and result["previous_close_rows"] == 20
+        assert result["written"] is False
+        assert "不能升级" in result["warning"]
+        assert db.read_bytes() == original
         assert not breadth_trend(db)["available"]

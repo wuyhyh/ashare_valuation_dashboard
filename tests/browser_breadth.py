@@ -90,12 +90,19 @@ def main():
         route.fulfill(status=200, content_type="application/json",
                       body=json.dumps(payload, ensure_ascii=False))
 
+    def intercept_linkage(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({
+            "available": False, "indices": {},
+            "message": "TEST FIXTURE ONLY：严格同日样本不足，不计算联动",
+        }, ensure_ascii=False))
+
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("**/api/breadth", intercept)
         page.route("**/api/breadth-trend?*", intercept_trend)
+        page.route("**/api/breadth-linkage?*", intercept_linkage)
         page.goto(BASE_URL + "/breadth.html", wait_until="networkidle")
         assert page.locator("#breadth-empty").is_visible()
         state["empty"] = False
@@ -106,6 +113,7 @@ def main():
         assert "未验证" in page.locator("#breadth-date-trust").inner_text()
         assert page.locator("#breadth-trend-empty").is_visible()
         assert not page.locator("#breadth-trend-chart").is_visible()
+        assert "样本不足" in page.locator("#breadth-linkage-status").inner_text()
         state["verified"] = True
         page.locator("#breadth-reload").click()
         page.locator("#breadth-trend-chart").wait_for(state="visible")

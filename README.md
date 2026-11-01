@@ -2,11 +2,11 @@
 
 ## v0.11 可信历史宽度（Issue #12，开发分支，尚未发布）
 
-v0.11 Phase A 在 `feat/v011-verified-breadth-history` 增加 `GET /api/breadth-trend?scope=SH_SZ_ALL&exclude_st=0&limit=90`，并在 `/breadth.html` 增加历史上涨比例区域。该接口**只读本地SQLite，不联网、不迁移旧库，不生成历史假数据**。
+v0.11 在 `feat/v011-verified-breadth-history` 增加 `GET /api/breadth-trend?scope=SH_SZ_ALL&exclude_st=0&limit=90` 与严格同日的 `GET /api/breadth-linkage`，并在 `/breadth.html` 增加历史上涨比例、5/20个核验交易日均线和联动准备状态。接口**只读本地SQLite，不联网、不迁移旧库，不生成历史假数据**。
 
 唯一可进入曲线的资料是具有真实交易日、同一交易日收盘后采集、跨板块独立股票日收盘核验（至少20支，>=95%匹配、最大相对误差<=0.05%）以及通过官方股票池覆盖检查的快照；同一历史曲线保持同一来源与口径。同一交易日取最近的合格快照；不同交易日大于7天的缺口不自动连线。
 
-**当前实际状态：Phase B 已新增显式收盘交叉核验候选代码，但未经过真实联网验证。v0.10 的旧周末快照不会被自动认可，真实历史图表预期为空。** 自动化中的“已核验”日期是明确构造的测试夹具，不是市场事实。不建议修改SQLite直接把 `trading_date_verified` 打开；即使这样也无法满足独立收盘证据。见 `docs/V011_HISTORY_AUDIT.md`。
+**当前实际状态：新浪 AKShare 逐股未复权日线已在本机真实联网验证 20/20 成功，但本地快照采自 2026-11-01 周日，正式 `--dry-run` 在联网前即拒绝，未升级数据库；真实历史图表仍为空。** 东方财富逐股接口实测触发 `Push2RateLimitError`，未作为成功来源。自动化中的“已核验”日期是明确构造的测试夹具，不是市场事实。见 `docs/V011_HISTORY_AUDIT.md`。
 
 
 本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.8 在保留既有界面、统计和 SQLite v3 结构的前提下，完成上证50、沪深300、中证500、中证1000的真实 PE TTM、PB 与指数收盘验证，并启用严格同日、同来源、同口径、同频率的四指数历史百分位比较。
@@ -281,12 +281,20 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 本工具仅用于历史估值研究，不构成投资建议或交易指令。
 
 
-## v0.11 收盘核验候选命令（需在独立开发分支操作）
+## v0.11 收盘核验命令（需在独立开发分支操作）
 在真实沪深交易日 15:30 后，先执行 `python app.py breadth-update --provider tencent`，再执行 `python app.py breadth-verify-close --reference sina`；核验失败不会把快照变成可信收盘日。可试 `--reference eastmoney`，但必须与原行情快照数据源不同。
-这套候选代码尚未完成真实联网实测。只有连续至少两个已成功验证的交易日、同源同口径的历史数据，市场宽度图表才会显示；已有周末快照不能回填为过去交易日。
+新浪参考接口已于 2026-11-01 对 2026-10-30 完成20只跨板块真实联网诊断；这只证明参考日线可用，不证明周末快照是周五收盘。只有连续至少两个已成功验证的交易日、同源同口径的历史数据，市场宽度图表才会显示；已有周末快照不能回填为过去交易日。
 成功时仅验证沪深四板块各5支股票，北交所没有独立日线证据，BSE/ALL_A 历史口径保持不可用。
 
 
 ### 安全试运行（不会升级数据库）
 正式写入前先执行 `python app.py breadth-verify-close --reference sina --dry-run`，检查交易日期、20支股票与价格差；参数 `--capture-id` 可以指定要核验的旧快照。
 撤去 `--dry-run` 后才会在全部核验通过时升级验证标记，升级前使用 SQLite 在线备份生成 `breadth.sqlite3.backup-before-close-verification-*`，失败不改写旧快照。
+
+仅诊断参考源、绝不升级快照：
+
+```bash
+python app.py breadth-reference-doctor --day 2026-10-30 --reference sina --timeout 300
+```
+
+该命令从当前快照只选取代码样本，读取指定历史日及前一交易日未复权收盘；它不能证明历史时点股票池，也不能构造或写入宽度历史。
