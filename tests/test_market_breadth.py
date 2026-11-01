@@ -156,3 +156,65 @@ def test_breadth_http_api_is_read_only_and_never_returns_demo():
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+
+def test_breadth_worker_drains_large_queue_before_join():
+    events = []
+
+    class FakeQueue:
+        def get(self, timeout):
+            events.append("get")
+            return {
+                "ok": True, "version": "fixture", "columns": list(breadth.REQUIRED_COLUMNS),
+                "records": [q("600001", "测试", 1)],
+            }
+        def close(self):
+            events.append("close")
+
+    class FakeProcess:
+        def start(self):
+            events.append("start")
+        def join(self, timeout):
+            events.append("join")
+        def is_alive(self):
+            return False
+
+    class FakeContext:
+        def Queue(self, maxsize):
+            return FakeQueue()
+        def Process(self, target, args, daemon):
+            return FakeProcess()
+
+    with patch.object(breadth.multiprocessing, "get_context", return_value=FakeContext()):
+        rows, version = breadth.fetch_spot_em(timeout_seconds=3)
+    assert len(rows) == 1 and version == "fixture"
+    assert events.index("get") < events.index("join")
+    assert "close" in events
+
+
+def test_shortened_subsequent_breadth_snapshot_rejected_before_database_write():
+    with tempfile.TemporaryDirectory() as directory:
+        db = Path(directory) / "breadth.sqlite3"
+        source = "ak.stock_zh_a_spot_em"
+        def make_rows(n):
+            return [q(f"{600000 + i:06d}", "真实来源测试（离线）", 0.5)
+                    for i in range(n)]
+        old = breadth.create_capture(make_rows(1100), source_interface=source,
+                                     source_name="fixture", min_identified=1000)
+        breadth.persist_capture(old, db)
+        truncated = breadth.create_capture(make_rows(800), source_interface=source,
+                                           source_name="fixture", min_identified=1)
+        with pytest.raises(breadth.BreadthError, match="截断"):
+            breadth.validate_against_previous(truncated, db)
+        assert breadth.latest_report(db)["capture"]["capture_id"] == old["capture_id"]
+
+
+def test_other_provider_does_not_receive_comparability_guard_without_cross_check():
+    with tempfile.TemporaryDirectory() as directory:
+        db = Path(directory) / "breadth.sqlite3"
+        old = breadth.create_capture([q("600001", "样本", 1)], source_interface="fixture-A",
+                                     source_name="offline-test", min_identified=1)
+        breadth.persist_capture(old, db)
+        new = breadth.create_capture([q("600001", "样本", 1)], source_interface="fixture-B",
+                                     source_name="offline-test", min_identified=1)
+        breadth.validate_against_previous(new, db)
