@@ -33,3 +33,14 @@
 .breadth-foot{font-size:11px;color:#718098;line-height:1.8}
 @media(max-width:950px){.breadth-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.breadth-extra{grid-template-columns:repeat(2,minmax(0,1fr))}.breadth-board-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.breadth-panel{padding:12px}.breadth-kpis strong{font-size:22px}.breadth-controls button{margin-left:0}.breadth-extra b{font-size:13px}.breadth-board-grid{display:flex;overflow-x:auto}.breadth-board-grid button{min-width:142px}}
+
+/* v0.11: strictly verified trading-day breadth, never quote capture timestamps */
+.breadth-trend-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;margin-bottom:15px}
+.breadth-trend-head h2{margin:0 0 6px;font-size:15px}
+.breadth-trend-head p,.breadth-trend-info{margin:0;color:#78879d;font-size:11px;line-height:1.8}
+#breadth-trend-count{font-size:11px;color:#506581;white-space:nowrap}
+.breadth-trend-empty{background:#f6f8fc;border:1px dashed #bccbdb;border-radius:10px;padding:24px 16px;color:#526b89;font-size:12px;line-height:1.8}
+#breadth-trend-svg{display:block;width:100%;height:auto;min-height:180px}
+.breadth-trend-dates{display:flex;justify-content:space-between;color:#73839a;font-size:10px;padding:0 18px 10px 40px}
+.breadth-trend-info{margin-top:12px}
+@media(max-width:600px){#breadth-trend-svg{min-height:130px}.breadth-trend-head{align-items:flex-start}}
