@@ -427,13 +427,11 @@ class Handler(BaseHTTPRequestHandler):
         if p.path == "/api/breadth-linkage":
             scope = params.get("scope", ["SH_SZ_ALL"])[0]
             st = params.get("exclude_st", ["0"])[0]
-            limit_value = params.get("limit", ["180"])[0]
             if st not in ("0", "1"):
                 return response(self, 400, {"error": "exclude_st 只允许 0/1"})
             try:
                 result = breadth_linkage(
                     BREADTH_DB, DB, scope=scope, exclude_st=(st == "1"),
-                    limit=int(limit_value),
                 )
             except (ValueError, OverflowError) as exc:
                 return response(self, 400, {"error": str(exc)})

@@ -48,6 +48,12 @@ def main() -> None:
             assert page.locator("#b-coverage").inner_text() == "100.0%"
         page.locator("#breadth-exchange").select_option("SH_SZ_ALL")
         assert "未验证" in page.locator("#breadth-date-trust").inner_text()
+        linkage = page.evaluate(
+            "fetch('/api/breadth-linkage?scope=SH_SZ_ALL&exclude_st=0').then(response => response.json())"
+        )
+        assert linkage["available"] is False and linkage["breadth_points"] == 0
+        assert "不足" in page.locator("#breadth-linkage-status").inner_text()
+        assert not page.locator("#breadth-linkage-results").is_visible()
         page.screenshot(path=str(ARTIFACTS / "v010-real-breadth-desktop.png"), full_page=True)
         page.set_viewport_size({"width": 390, "height": 844})
         page.wait_for_timeout(250)

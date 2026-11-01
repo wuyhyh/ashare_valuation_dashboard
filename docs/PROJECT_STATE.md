@@ -4,7 +4,9 @@
 - `breadth-verify-close` 按沪深四板块各抽5股，要求目标日价格、前一真实交易日未复权收盘及涨跌幅推导同时通过；正式写入前备份 SQLite。新浪 `stock_zh_a_daily` 已真实联网 20/20 返回，AKShare `1.20.18`，2026-10-30及前一交易日均完整；东方财富实测 `Push2RateLimitError`。
 - 本地快照采自 2026-11-01周日，正式 `--dry-run` 被收盘日门禁拒绝，数据库未升级，真实历史曲线仍为空；北交所尚无日线验证。下一个交易日必须15:30后重新采集并先 dry-run。
 - 已增加严格同日、无填充的 `/api/breadth-linkage`：指数背离至少20个稠密共同日；PE/PB关系至少12个共同日期并识别日/月频。真实宽度样本不足时只显示不可用，不计算相关性或信号。
-- 本轮实现提交 `37e8d7a`；本机回归：`133 passed, 24 subtests passed`、`42`项 unittest、Node日期轴与语法检查、4个Playwright脚本（含真实SQLite桌面端及390px）全部通过。文档提交 `c0a3628` 的 GitHub Actions pull_request run `#41291845587` 与 push run `#41291842221` 均成功。
+- PR #13 P1修复：图表保持90/180日边界，联动使用独立420日只读查询；月频按不同自然月审计，要求至少12个连续月、同月不重复且零缺月，混合宽度来源不会拼接。
+- 联动页面在可用时展示实际差值/相关系数、单位、起止日期、样本数、来源、频率和统计公式；不可用时逐项显示具体原因。当前真实宽度历史仍为0，真实SQLite页面保持空状态。
+- 本机回归：`135 passed, 24 subtests passed`、`42`项 unittest、Node与语法检查；3条模拟Playwright和1条本机真实SQLite Playwright均通过。GitHub CI只自动运行3条模拟Playwright；真实SQLite脚本因私有数据库不入Git，仅在本机手动运行。
 - 质量结果须以此分支最新CI为准，Issue #12 与 `docs/V011_HISTORY_AUDIT.md` 记录具体证据与待办。
 
 # 项目状态 · 当前发布版

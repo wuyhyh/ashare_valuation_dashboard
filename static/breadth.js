@@ -105,24 +105,55 @@ async function loadLinkage(){
   const status=elem("breadth-linkage-status"),results=elem("breadth-linkage-results");
   status.textContent="正在检查严格同日样本…";results.hidden=true;results.replaceChildren();
   try{
-    const query=new URLSearchParams({scope,exclude_st:exclude,limit:"180"});
+    const query=new URLSearchParams({scope,exclude_st:exclude});
     const response=await fetch("/api/breadth-linkage?"+query,{cache:"no-store"});
     if(!response.ok)throw new Error("HTTP "+response.status);
     const data=await response.json();
     if(request!==linkageSequence)return;
     status.textContent=data.message||"没有达到联动门槛的严格同日样本。";
     const labels={"000300":"沪深300","000905":"中证500","000852":"中证1000"};
+    const signed=(value,digits=2)=>value==null?"—":(Number(value)>=0?"+":"")+Number(value).toFixed(digits);
+    const appendText=(parent,tag,className,value)=>{
+      const node=document.createElement(tag);node.className=className;node.textContent=value;parent.append(node);return node;
+    };
     for(const [code,item] of Object.entries(data.indices||{})){
-      const messages=[];
-      if(item.divergence?.available)messages.push("20日背离样本已就绪");
+      const card=document.createElement("article");card.className="breadth-linkage-card";
+      appendText(card,"h3","",labels[code]||code);
+      const divergence=item.divergence||{};
+      const divergenceBlock=document.createElement("section");divergenceBlock.className="breadth-linkage-item";
+      appendText(divergenceBlock,"h4","","20日指数探索性差值");
+      if(divergence.available){
+        appendText(divergenceBlock,"strong","linkage-value",signed(divergence.divergence_percentage_points)+" 个百分点");
+        appendText(divergenceBlock,"p","","上涨比例变化 "+signed(divergence.breadth_change_percentage_points)+" 个百分点 − 指数收益 "+signed(divergence.index_return_pct)+"%");
+        appendText(divergenceBlock,"small","",divergence.start_date+" → "+divergence.end_date+" · "+divergence.common_dates+"个严格同日样本");
+      }else{
+        appendText(divergenceBlock,"strong","linkage-unavailable","不可用");
+        appendText(divergenceBlock,"p","",divergence.message||"指数同日样本不足");
+        appendText(divergenceBlock,"small","",(divergence.common_dates||0)+" / "+(divergence.required_common_dates||20)+" 个所需共同日");
+      }
+      appendText(divergenceBlock,"small","","指数来源 "+(item.index_close_source||"未采集")+" · "+(item.index_close_frequency||"频率未知")+"；宽度来源 "+(data.breadth_source_interface||"尚无合格历史"));
+      appendText(divergenceBlock,"small","linkage-method",divergence.calculation||"上涨比例百分点变化与指数百分比收益的探索性差值，不是预测信号");
+      card.append(divergenceBlock);
       for(const [metric,relation] of Object.entries(item.valuation_relationship||{})){
-        if(relation.available)messages.push((metric==="pe_ttm"?"PE":"PB")+"同日 "+relation.common_dates+"期");
+        const block=document.createElement("section");block.className="breadth-linkage-item";
+        const label=metric==="pe_ttm"?"PE TTM":"PB";
+        appendText(block,"h4","",label+" 与上涨比例");
+        if(relation.available){
+          appendText(block,"strong","linkage-value","Pearson r = "+Number(relation.correlation).toFixed(3));
+          appendText(block,"p","",relation.start_date+" → "+relation.end_date+" · "+relation.common_dates+"个严格同日样本");
+        }else{
+          appendText(block,"strong","linkage-unavailable","不可用");
+          appendText(block,"p","",relation.message||"严格同日估值样本不足");
+        }
+        const monthDetail=relation.frequency==="monthly"
+          ?" · "+(relation.common_months||0)+"个自然月 / 跨度"+(relation.calendar_month_span||0)+"月 · 缺月"+(relation.missing_month_count||0)
+          :"";
+        appendText(block,"small","",(relation.common_dates||0)+" / "+(relation.required_common_dates||12)+" 个所需共同日"+monthDetail);
+        appendText(block,"small","","来源 "+(relation.source_interface||"未采集")+" · "+(relation.frequency||"频率未知"));
+        appendText(block,"small","linkage-method",relation.calculation||"严格同日相关性，不填充、不插值");
+        card.append(block);
       }
-      if(messages.length){
-        const chip=document.createElement("span");
-        chip.textContent=(labels[code]||code)+"："+messages.join(" · ");
-        results.append(chip);
-      }
+      results.append(card);
     }
     results.className="breadth-linkage-results";
     results.hidden=!results.childElementCount;

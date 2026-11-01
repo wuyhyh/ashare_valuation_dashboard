@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 import sqlite3
 
-from breadth_history import breadth_trend
+from breadth_history import LINKAGE_MAX_POINTS, breadth_linkage_history
 
 
 LINKED_INDICES = ("000300", "000905", "000852")
@@ -68,25 +68,75 @@ def _correlation(left: list[float], right: list[float]) -> float | None:
     return covariance / (left_scale * right_scale)
 
 
+def _month_number(value: str) -> int:
+    year, month = map(int, value[:7].split("-"))
+    return year * 12 + month - 1
+
+
+def _month_label(value: int) -> str:
+    year, month = divmod(value, 12)
+    return f"{year:04d}-{month + 1:02d}"
+
+
+def _monthly_audit(pairs: list[tuple[str, float, float]]) -> dict:
+    month_counts = {}
+    for day, _, _ in pairs:
+        month = day[:7]
+        month_counts[month] = month_counts.get(month, 0) + 1
+    months = sorted(month_counts, key=_month_number)
+    if not months:
+        return {
+            "common_months": 0, "calendar_month_span": 0,
+            "missing_months": [], "missing_month_count": 0,
+            "max_missing_consecutive_months": 0, "duplicate_months": [],
+            "month_coverage_ratio": 0,
+        }
+    start = _month_number(months[0])
+    end = _month_number(months[-1])
+    present = {_month_number(month) for month in months}
+    missing = [value for value in range(start, end + 1) if value not in present]
+    longest = current = 0
+    for value in range(start, end + 1):
+        if value in present:
+            current = 0
+        else:
+            current += 1
+            longest = max(longest, current)
+    expected = end - start + 1
+    duplicates = [month for month in months if month_counts[month] > 1]
+    return {
+        "common_months": len(months), "calendar_month_span": expected,
+        "missing_months": [_month_label(value) for value in missing],
+        "missing_month_count": len(missing),
+        "max_missing_consecutive_months": longest,
+        "duplicate_months": duplicates,
+        "month_coverage_ratio": len(months) / expected,
+    }
+
+
 def breadth_linkage(
     breadth_db: str | Path,
     valuation_db: str | Path,
     *,
     scope: str = "SH_SZ_ALL",
     exclude_st: bool = False,
-    limit: int = 180,
 ) -> dict:
     """Compare verified breadth with active index/valuation series on exact dates.
 
     No date is shifted, forward-filled or interpolated. Results remain unavailable
     until their explicit minimum sample and density requirements are satisfied.
     """
-    trend = breadth_trend(breadth_db, scope=scope, exclude_st=exclude_st, limit=limit)
+    trend = breadth_linkage_history(
+        breadth_db, scope=scope, exclude_st=exclude_st, limit=LINKAGE_MAX_POINTS,
+    )
     result = {
         "available": False,
         "scope": scope,
         "exclude_st": exclude_st,
         "breadth_points": trend["point_count"],
+        "breadth_history_query_limit": LINKAGE_MAX_POINTS,
+        "breadth_source_interface": trend.get("source_interface"),
+        "breadth_coverage_scope": trend.get("coverage_scope"),
         "matching_rule": "exact_same_date_no_fill_no_interpolation",
         "divergence_minimum": MIN_DIVERGENCE_POINTS,
         "valuation_minimum": MIN_VALUATION_POINTS,
@@ -108,6 +158,7 @@ def breadth_linkage(
             "common_dates": len(index_pairs),
             "required_common_dates": MIN_DIVERGENCE_POINTS,
             "message": "至少需要20个稠密、严格同日的真实宽度与指数点位样本",
+            "calculation": "上涨比例百分点变化 − 指数百分比收益；仅为不同指标的探索性差值",
         }
         window = index_pairs[-MIN_DIVERGENCE_POINTS:]
         if index_series is not None and index_series.get("frequency") != "daily":
@@ -123,6 +174,7 @@ def breadth_linkage(
                 "breadth_change_percentage_points": breadth_change,
                 "index_return_pct": index_return,
                 "divergence_percentage_points": breadth_change - index_return,
+                "calculation": "上涨比例百分点变化 − 指数百分比收益；仅为不同指标的探索性差值",
                 "message": "探索性同日差异，不是投资信号或因果结论",
             }
             any_ready = True
@@ -130,15 +182,32 @@ def breadth_linkage(
         for metric in VALUATION_METRICS:
             series = _active_series(valuation_db, index_code, metric)
             pairs = _exact_pairs(breadth_by_date, series)
+            monthly_audit = _monthly_audit(pairs)
             item = {
                 "available": False,
                 "common_dates": len(pairs),
                 "required_common_dates": MIN_VALUATION_POINTS,
                 "frequency": None if series is None else series.get("frequency"),
+                "source_interface": None if series is None else series.get("source_interface"),
+                "calculation": "Pearson相关系数：同日上涨比例与估值水平；不填充、不插值",
+                **monthly_audit,
                 "message": "严格同日的真实宽度与估值样本不足，不计算相关性",
             }
             if series is not None and series.get("frequency") not in ("daily", "monthly"):
                 item["message"] = "估值频率不是已识别的日频或月频，拒绝联动"
+            elif series is not None and series.get("frequency") == "monthly" and monthly_audit["duplicate_months"]:
+                item["message"] = "月频估值同一自然月出现多条严格同日样本，拒绝混作月频"
+            elif series is not None and series.get("frequency") == "monthly" and monthly_audit["missing_month_count"]:
+                item["message"] = (
+                    f"严格同日月频样本存在{monthly_audit['missing_month_count']}个缺失月份，"
+                    "不使用跨年零星样本计算相关性"
+                )
+            elif series is not None and series.get("frequency") == "monthly" and monthly_audit["common_months"] < MIN_VALUATION_POINTS:
+                item["message"] = "至少需要12个连续自然月的严格同日估值样本"
+            elif series is not None and series.get("frequency") == "daily" and (
+                    len(pairs) < MIN_VALUATION_POINTS or
+                    not _dense([pair[0] for pair in pairs[-MIN_VALUATION_POINTS:]])):
+                item["message"] = "日频估值至少需要12个稠密严格同日样本"
             elif len(pairs) >= MIN_VALUATION_POINTS:
                 correlation = _correlation(
                     [pair[1] for pair in pairs], [pair[2] for pair in pairs]
@@ -148,7 +217,6 @@ def breadth_linkage(
                         "available": True,
                         "start_date": pairs[0][0], "end_date": pairs[-1][0],
                         "correlation": correlation,
-                        "source_interface": series["source_interface"],
                         "message": "仅为严格同日样本的探索性相关性，不前向填充月频估值",
                     })
                     any_ready = True

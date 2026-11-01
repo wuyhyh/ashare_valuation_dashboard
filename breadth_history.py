@@ -19,6 +19,7 @@ MAX_RELATIVE_DIFF = 0.0005  # 0.05% maximum relative close disagreement
 HISTORY_CALCULATION_VERSION = "v011-breadth-v1"
 EVIDENCE_METHOD = "independent_stock_daily_close_crosscheck"
 MAX_POINTS = 180
+LINKAGE_MAX_POINTS = 420
 MOVING_AVERAGE_WINDOWS = (5, 20)
 MAX_ROLLING_GAP_DAYS = 7
 
@@ -77,42 +78,28 @@ def _eligible(capture: dict, scope: str) -> bool:
         return False
 
 
-def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
-                  exclude_st: bool = False, limit: int = 90) -> dict:
-    """Read a single comparable provider/scope cohort, one capture per trade day.
-
-    The most recent accepted evidence fixes provider and coverage scope.
-    Do not silently blend mainboard-only, BSE-inclusive or other providers.
-    """
+def _validate_query(scope: str, exclude_st: bool) -> None:
     if scope not in SCOPE_BOARDS:
         raise ValueError("未知市场统计范围")
     if type(exclude_st) is not bool:
         raise ValueError("exclude_st 必须是布尔值")
-    if type(limit) is not int or not 2 <= limit <= MAX_POINTS:
-        raise ValueError("历史窗口必须为2到180个已核验交易日")
-    result = {
-        "available": False, "scope": scope, "exclude_st": exclude_st,
-        "observations": [], "point_count": 0, "required_points": 2,
-        "source_interface": None, "coverage_scope": None,
-        "calculation_version": HISTORY_CALCULATION_VERSION,
-        "moving_averages": {
-            "windows": list(MOVING_AVERAGE_WINDOWS), "definition": "verified_session_simple_mean",
-            "max_gap_days": MAX_ROLLING_GAP_DAYS, "ma5_ready": False, "ma20_ready": False,
-        },
-        "message": "尚无至少两个具有独立收盘价核验证据的可比交易日；当前行情快照不能绘制历史趋势",
-    }
+
+
+def _load_verified_points(
+    db_path: str | Path, *, scope: str, exclude_st: bool, limit: int,
+) -> tuple[list[dict], tuple[str, str] | None]:
+    """Load one current evidence cohort without changing SQLite."""
     path = Path(db_path)
     if not path.is_file():
-        return result
-    # URI mode=ro ensures this endpoint does not trigger schema migration.
+        return [], None
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         conn.row_factory = sqlite3.Row
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(breadth_captures)")}
         if not {"coverage_scope", "trading_date_verified", "trading_date", "quality_json"}.issubset(columns):
-            return result
+            return [], None
         captures = conn.execute(
             "SELECT * FROM breadth_captures WHERE trading_date_verified=1 "
-            "AND trading_date IS NOT NULL ORDER BY captured_at_utc DESC LIMIT 1500"
+            "AND trading_date IS NOT NULL ORDER BY captured_at_utc DESC LIMIT 5000"
         ).fetchall()
         chosen = {}
         cohort = None
@@ -131,7 +118,7 @@ def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
                 if len(chosen) == limit:
                     break
         if cohort is None:
-            return result
+            return [], None
         points = []
         for day in sorted(chosen):
             item = chosen[day]
@@ -154,32 +141,83 @@ def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
                 "median_change_pct": metrics["median_change_pct"],
                 "turnover_weighted_change_pct": metrics["turnover_weighted_change_pct"],
             })
-        for index, point in enumerate(points):
-            for window in MOVING_AVERAGE_WINDOWS:
-                field = f"advance_ratio_ma{window}"
-                if index + 1 < window:
-                    point[field] = None
-                    continue
-                sample = points[index + 1 - window:index + 1]
-                dates = [date.fromisoformat(item["trading_date"]) for item in sample]
-                gaps = [(right - left).days for left, right in zip(dates, dates[1:])]
-                point[field] = (
-                    sum(item["advance_ratio"] for item in sample) / window
-                    if all(gap <= MAX_ROLLING_GAP_DAYS for gap in gaps) else None
-                )
-        result.update({
-            "observations": points,
-            "point_count": len(points),
-            "available": len(points) >= 2,
-            "source_interface": cohort[0], "coverage_scope": cohort[1],
-        })
-        result["moving_averages"].update({
-            "ma5_ready": any(point["advance_ratio_ma5"] is not None for point in points),
-            "ma20_ready": any(point["advance_ratio_ma20"] is not None for point in points),
-        })
-        if len(points) >= 2:
-            result["message"] = (
-                "仅展示具有独立真实收盘核验证据的同源同口径交易日；"
-                "日期缺口不填充，不代表宽度与指数涨跌有确定因果关系"
+        return points, cohort
+
+
+def breadth_linkage_history(
+    db_path: str | Path, *, scope: str = "SH_SZ_ALL",
+    exclude_st: bool = False, limit: int = LINKAGE_MAX_POINTS,
+) -> dict:
+    """Return a compact long horizon for exact-date linkage, not charting."""
+    _validate_query(scope, exclude_st)
+    if type(limit) is not int or not 2 <= limit <= LINKAGE_MAX_POINTS:
+        raise ValueError("联动历史窗口必须为2到420个已核验交易日")
+    points, cohort = _load_verified_points(
+        db_path, scope=scope, exclude_st=exclude_st, limit=limit,
+    )
+    return {
+        "available": len(points) >= 2,
+        "scope": scope, "exclude_st": exclude_st,
+        "observations": points, "point_count": len(points),
+        "query_limit": limit,
+        "source_interface": None if cohort is None else cohort[0],
+        "coverage_scope": None if cohort is None else cohort[1],
+        "calculation_version": HISTORY_CALCULATION_VERSION,
+        "message": (
+            "长期联动历史只使用同一来源、覆盖范围和统计版本的已核验交易日"
+            if len(points) >= 2 else
+            "长期联动历史不足；不会用图表窗口、插值或其他来源补齐"
+        ),
+    }
+
+
+def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
+                  exclude_st: bool = False, limit: int = 90) -> dict:
+    """Read a chart-limited comparable cohort, one capture per trade day."""
+    _validate_query(scope, exclude_st)
+    if type(limit) is not int or not 2 <= limit <= MAX_POINTS:
+        raise ValueError("历史窗口必须为2到180个已核验交易日")
+    result = {
+        "available": False, "scope": scope, "exclude_st": exclude_st,
+        "observations": [], "point_count": 0, "required_points": 2,
+        "source_interface": None, "coverage_scope": None,
+        "calculation_version": HISTORY_CALCULATION_VERSION,
+        "moving_averages": {
+            "windows": list(MOVING_AVERAGE_WINDOWS), "definition": "verified_session_simple_mean",
+            "max_gap_days": MAX_ROLLING_GAP_DAYS, "ma5_ready": False, "ma20_ready": False,
+        },
+        "message": "尚无至少两个具有独立收盘价核验证据的可比交易日；当前行情快照不能绘制历史趋势",
+    }
+    points, cohort = _load_verified_points(
+        db_path, scope=scope, exclude_st=exclude_st, limit=limit,
+    )
+    for index, point in enumerate(points):
+        for window in MOVING_AVERAGE_WINDOWS:
+            field = f"advance_ratio_ma{window}"
+            if index + 1 < window:
+                point[field] = None
+                continue
+            sample = points[index + 1 - window:index + 1]
+            dates = [date.fromisoformat(item["trading_date"]) for item in sample]
+            gaps = [(right - left).days for left, right in zip(dates, dates[1:])]
+            point[field] = (
+                sum(item["advance_ratio"] for item in sample) / window
+                if all(gap <= MAX_ROLLING_GAP_DAYS for gap in gaps) else None
             )
+    result.update({
+        "observations": points,
+        "point_count": len(points),
+        "available": len(points) >= 2,
+        "source_interface": None if cohort is None else cohort[0],
+        "coverage_scope": None if cohort is None else cohort[1],
+    })
+    result["moving_averages"].update({
+        "ma5_ready": any(point["advance_ratio_ma5"] is not None for point in points),
+        "ma20_ready": any(point["advance_ratio_ma20"] is not None for point in points),
+    })
+    if len(points) >= 2:
+        result["message"] = (
+            "仅展示具有独立真实收盘核验证据的同源同口径交易日；"
+            "日期缺口不填充，不代表宽度与指数涨跌有确定因果关系"
+        )
     return result
