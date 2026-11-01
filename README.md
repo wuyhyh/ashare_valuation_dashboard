@@ -285,3 +285,8 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 在真实沪深交易日 15:30 后，先执行 `python app.py breadth-update --provider tencent`，再执行 `python app.py breadth-verify-close --reference sina`；核验失败不会把快照变成可信收盘日。可试 `--reference eastmoney`，但必须与原行情快照数据源不同。
 这套候选代码尚未完成真实联网实测。只有连续至少两个已成功验证的交易日、同源同口径的历史数据，市场宽度图表才会显示；已有周末快照不能回填为过去交易日。
 成功时仅验证沪深四板块各5支股票，北交所没有独立日线证据，BSE/ALL_A 历史口径保持不可用。
+
+
+### 安全试运行（不会升级数据库）
+正式写入前先执行 `python app.py breadth-verify-close --reference sina --dry-run`，检查交易日期、20支股票与价格差；参数 `--capture-id` 可以指定要核验的旧快照。
+撤去 `--dry-run` 后才会在全部核验通过时升级验证标记，升级前使用 SQLite 在线备份生成 `breadth.sqlite3.backup-before-close-verification-*`，失败不改写旧快照。
