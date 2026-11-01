@@ -155,12 +155,17 @@ def normalize_quotes(records: list[dict], official_pool: dict[str, dict] | None 
     quotes = []
     seen = set()
     excluded = {"not_in_official_pool": 0, "bad_code": 0, "duplicate_code": 0}
+    unexpected_quote_codes = []
     for raw in records:
         code = str(raw.get("代码", "")).strip()
         if not re.fullmatch(r"\d{6}", code):
             excluded["bad_code"] += 1
             continue
-        identity = (official_pool or {}).get(code)
+        identity = official_pool.get(code) if official_pool is not None else None
+        if official_pool is not None and identity is None:
+            excluded["not_in_official_pool"] += 1
+            unexpected_quote_codes.append(code)
+            continue
         board = identity.get("board") if identity else fallback_board(code)
         if board not in BOARD_INFO:
             excluded["not_in_official_pool"] += 1
@@ -189,6 +194,7 @@ def normalize_quotes(records: list[dict], official_pool: dict[str, dict] | None 
             "valid_quote": quoted, "traded": traded,
         })
     extreme = [row["code"] for row in quotes if row["change_pct"] is not None and abs(row["change_pct"]) > 30]
+    special_count = sum(row["security_type"] != "A_SHARE" for row in quotes)
     return quotes, {
         "raw_count": len(records),
         "identified_scope_count": sum(row["security_type"] == "A_SHARE" for row in quotes),
@@ -202,7 +208,14 @@ def normalize_quotes(records: list[dict], official_pool: dict[str, dict] | None 
         "identified_bse": sum(
             row["security_type"] == "A_SHARE" and row["board"] == "BSE" for row in quotes
         ),
-        "excluded_special_security": sum(row["security_type"] != "A_SHARE" for row in quotes),
+        "excluded_special_security": special_count,
+        "unexpected_quote_count": len(unexpected_quote_codes),
+        "unexpected_quote_sample": unexpected_quote_codes[:20],
+        "exclusion_reasons": {
+            "outside_official_pool": len(unexpected_quote_codes),
+            "special_security_type": special_count,
+            "invalid_code": excluded["bad_code"],
+        },
         **excluded,
         "extreme_change_count": len(extreme), "extreme_change_sample": extreme[:20],
     }

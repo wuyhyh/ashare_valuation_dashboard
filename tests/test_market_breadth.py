@@ -228,6 +228,54 @@ def test_board_slices_sum_to_same_single_source_snapshot_without_cdr_pollution()
     ) == breadth.summarize(capture["quotes"], scope="SH_SZ_ALL")["identified_count"]
 
 
+def test_official_pool_excludes_unexpected_prefix_matching_quote_from_all_denominators_and_db():
+    rows = [
+        q("600001", "沪主", 1), q("000001", "深主", -1),
+        q("302132", "创业板特殊代码", 2), q("688001", "科创", -2),
+        q("689009", "九号公司-WD", 3),
+        q("688999", "伪造名录外科创报价", 20),
+    ]
+    pool = {
+        "600001": {"exchange": "SH", "board": "SH_MAIN", "security_type": "A_SHARE", "name": "沪主"},
+        "000001": {"exchange": "SZ", "board": "SZ_MAIN", "security_type": "A_SHARE", "name": "深主"},
+        "302132": {"exchange": "SZ", "board": "CHINEXT", "security_type": "A_SHARE", "name": "创业板特殊代码"},
+        "688001": {"exchange": "SH", "board": "STAR", "security_type": "A_SHARE", "name": "科创"},
+        "689009": {"exchange": "SH", "board": "STAR", "security_type": "CDR", "name": "九号公司"},
+    }
+    capture = breadth.create_capture(
+        rows, source_name="fixture", source_interface="one.snapshot", min_identified=1,
+        official_pool=pool,
+    )
+    all_market = breadth.summarize(capture["quotes"], scope="SH_SZ_ALL")
+    assert all_market["identified_count"] == 4
+    assert all_market["advances"] == 2
+    assert all_market["declines"] == 2
+    assert all_market["advance_ratio"] == .5
+    assert breadth.summarize(capture["quotes"], scope="ALL_A")["identified_count"] == 4
+    assert capture["quality"]["unexpected_quote_count"] == 1
+    assert capture["quality"]["unexpected_quote_sample"] == ["688999"]
+    assert capture["quality"]["not_in_official_pool"] == 1
+    assert capture["quality"]["excluded_special_security"] == 1
+    assert capture["quality"]["exclusion_reasons"] == {
+        "outside_official_pool": 1, "special_security_type": 1, "invalid_code": 0,
+    }
+    assert {row["code"] for row in capture["quotes"]} == {
+        "600001", "000001", "302132", "688001", "689009",
+    }
+
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = Path(directory) / "breadth.sqlite3"
+        breadth.persist_capture(capture, db_path)
+        report = breadth.latest_report(db_path)
+        assert report["groups"]["SH_SZ_ALL_all"]["identified_count"] == 4
+        assert report["groups"]["ALL_A_all"]["identified_count"] == 4
+        assert report["capture"]["quality"]["unexpected_quote_count"] == 1
+        with sqlite3.connect(db_path) as db:
+            assert db.execute(
+                "SELECT COUNT(*) FROM breadth_quotes WHERE code='688999'"
+            ).fetchone()[0] == 0
+
+
 def test_v09_sqlite_migrates_as_mainboard_only_without_fake_empty_growth_boards():
     with tempfile.TemporaryDirectory() as directory:
         db_path = Path(directory) / "old.sqlite3"

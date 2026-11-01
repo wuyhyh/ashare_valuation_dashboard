@@ -112,8 +112,15 @@
 ## V10-03 · 页面、真实验证与交付
 - [x] 页面支持沪深合计、主板合计、四板块、北交所及全部 A 股切换，并显示逐板块名录覆盖率。
 - [x] 真实 AKShare `1.20.18` + 腾讯快照验证 `5,577` 行；五板块官方代码覆盖均为 `100%`，名称差异 `0`。
-- [x] 本地 `107` 项 pytest + `24` 个子测试、`40` 项 unittest、Node、语法检查通过。
+- [x] 本地初版 `107` 项、初审修复后 `108` 项 pytest + `24` 个子测试、`40` 项 unittest、Node、语法检查通过。
 - [x] Playwright 模拟与真实 SQLite 的桌面端、390px 页面验收通过，页面脚本错误为 `0`。
 - [x] 更新 README、项目状态、任务、决策及 v0.9/v0.10 审计文档。
-- [ ] 推送提交并确认 GitHub Actions 通过，创建目标为 `feat/v09-market-breadth` 的 Draft PR。
+- [x] 推送实现提交 `a708cdb`；GitHub Actions run `#41267522924` 通过；已创建目标为 `feat/v09-market-breadth` 的 Draft PR #10。
 - [ ] 等待 ChatGPT 终审；不自行合并 v0.9、v0.10 或 main。
+
+## V10-04 · PR #10 官方名录准入审查修复
+- [x] 有官方股票池时禁用名录外报价的前缀回退，名录外证券不进入 `SH_SZ_ALL`、`BSE` 或 `ALL_A` 分母。
+- [x] 记录 `unexpected_quote_count`、最多20个代码样例和 `outside_official_pool` 排除原因。
+- [x] 增加 `302132` 创业板、`689009` CDR、伪造 `688999` 名录外报价及 SQLite 不落库测试。
+- [x] 本地重跑 `108` 项 pytest、`40` 项 unittest、Node、模拟与真实 SQLite Playwright，桌面及390px均通过。
+- [ ] 推送修复并确认最新 GitHub Actions，回复 PR 审查记录。
