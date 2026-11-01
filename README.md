@@ -1,15 +1,15 @@
-# A 股市场估值观察站（v0.8）
+# A 股市场估值观察站（main v0.8 / v0.9 开发中）
 
 本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.8 在保留既有界面、统计和 SQLite v3 结构的前提下，完成上证50、沪深300、中证500、中证1000的真实 PE TTM、PB 与指数收盘验证，并启用严格同日、同来源、同口径、同频率的四指数历史百分位比较。
 
 ## 为什么运行 `python app.py` 可能看不到 Codex 的真实数据？
 
-`python app.py` **只启动本地 HTTP 服务，不自动联网采集**。代码在 Git 仓库中共享，但 `valuation.sqlite3`（含真实估值和行情）被 `.gitignore` 排除；Codex 本机已采集的 12/12 个真实序列不会随着 Git 推送进入另一台电脑。尚未合并的 PR #5 v0.8 开发分支也不等于本地 `main`。
+`python app.py` **只启动本地 HTTP 服务，不自动联网采集**。代码在 Git 仓库中共享，但 `valuation.sqlite3`（含真实估值和行情）被 `.gitignore` 排除；Codex 本机已采集的 12/12 个真实序列不会随着 Git 推送进入另一台电脑。v0.8 已合并到主分支；尚未合并的 v0.9 开发分支与本地 `main` 仍可能不同。
 
 ```bash
 git fetch origin
-git switch feat/v08-multi-index-valuation
-git pull --ff-only origin feat/v08-multi-index-valuation
+git switch main
+git pull --ff-only origin main
 python app.py doctor                       # 不联网：查看当前分支/提交、实际 SQLite 路径、12项覆盖
 python app.py sync                         # 显式备份 SQLite 并联网更新全部12项（可能被限流）
 python app.py                              # 启动页面，不联网更新
@@ -20,6 +20,37 @@ python app.py                              # 启动页面，不联网更新
 页面上方新增运行环境状态条，能显示当前代码分支/提交、实际数据库是否存在、真实序列数，并可点击“检查本机状态”。如果浏览器仍显示旧版，检查旧进程是否占用 `127.0.0.1:8765`（例如 `lsof -nP -iTCP:8765 -sTCP:LISTEN`）并从新服务地址重新打开。注意中国内地 A 股休市日没有新增交易日行情；最新完整交易日可能仍是此前的星期五。
 
 **演示数据策略：** `/api/history` 默认只返回 SQLite 中已存在的真实历史；数据库为空时返回空数据和缺失状态，不再自动生成看似正常的估值曲线。仅显式请求 `/api/history?index=000300&metric=pe_ttm&demo=1` 时才输出带 `is_demo=true` 标记的合成示例。\n\n**安全规则：** `sync` 使用 SQLite 在线备份生成 `valuation.sqlite3.backup-before-sync-...`，逐项失败不会把其他来源静默伪装为成功。不会在页面启动时自动请求12个外部接口，以避免限流与启动卡顿。若各上游返回429/证书错误，先查看同步错误，再处理网络或证书环境。
+
+## 体验 v0.9 开发分支（市场宽度 + 跨资产）
+
+```bash
+git fetch origin
+git switch feat/v09-market-breadth
+git pull --ff-only origin feat/v09-market-breadth
+
+# 仅首次需主动联网采集；可分标的运行
+python app.py breadth-update --provider auto
+python app.py assets-update --asset 000688
+python app.py assets-update --asset 399673
+python app.py assets-update --asset 518880
+
+python app.py
+# 浏览器打开 /breadth.html 或 /assets.html
+```
+
+**目前属于 Draft**：2026-11-01 已完成腾讯主板快照与两交所名录核对、三项跨资产双源核验和本机真实 SQLite Playwright验收；东方财富快照仍受 `Push2RateLimitError` 影响，市场宽度交易日仍无法从即时接口独立确认。不要将无数据页面或 CI 模拟数据理解为真实行情。
+
+## v0.9（开发中）：科创50、创业板50与华安黄金ETF价格观察
+- `/assets.html` 提供三对象真实收盘价走势图，可切换3个月、6个月、1/3/5/8/10年和全部历史；日期轴缩放自动细化。
+- `python app.py assets-update` 显式更新全部三项，或以 `--asset 000688|399673|518880` 单项更新；`python app.py assets-doctor` 查看本机数据覆盖。行情存入独立 `asset_prices.sqlite3`，不随Git推送，不在启动时自动采集。
+- **科创50与创业板50只添加指数点位研究；PE/PB历史来源待核验。** 黄金采用518880场内非复权价，不能误当Au99.99现货或基金净值，不提供PE/PB。三项主源均已与独立交叉源核验，覆盖和差异参见 `docs/V09_ASSETS_AUDIT.md`。
+- 10年数据不足时明确拒绝短历史冒充，按钮和时间轴直接放在图表上方。
+
+## v0.9（开发中）：沪深主板市场宽度
+- 新增 `/breadth.html` 市场宽度页面，显示可审核的沪深主板**行情快照**，支持上海/深圳/合计切换和 ST 过滤；涨跌数、上涨比例、无成交和缺失报价分别统计。
+- `python app.py breadth-doctor`：不联网查看本机快照；`python app.py breadth-update --provider auto|eastmoney|tencent|sina`：主动调用所选数据源，校验字段、两交所主板股票池覆盖和同源快照完整性后存入独立 `breadth.sqlite3`。只浏览页面或运行 `python app.py` 不会自动抓取。
+- `GET /api/breadth` 只读，严格不提供演示行情或伪造历史；“采集日”不等于“实际交易日”，接口尚未可靠提供并验证交易日，故尚不启用历史走势。
+- **重要**：2026-11-01 腾讯快照实测 `5,577` 只，其中沪深主板 `3,194` 只，与上交所 `1,700` 只和深交所主板 `1,494` 只代码完全一致；东方财富调用本次限流失败。由于在周日采集且即时接口不提供可独立核实的报价交易日，仍不启用历史宽度曲线。详见 `docs/V09_BREADTH_AUDIT.md`。
 
 ## v0.8 数据可用性
 

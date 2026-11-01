@@ -1,0 +1,431 @@
+"""Independent price-only research series for indices and gold ETF.
+
+This module does not calculate P/E or P/B, and never substitutes ETF prices
+for an index level or gold spot benchmark.
+"""
+from __future__ import annotations
+
+from contextlib import closing
+from datetime import date, datetime, timezone
+import json
+import math
+import multiprocessing
+from pathlib import Path
+import queue
+import sqlite3
+from zoneinfo import ZoneInfo
+
+
+ROOT = Path(__file__).resolve().parent
+DEFAULT_DB = ROOT / "asset_prices.sqlite3"
+TZ = ZoneInfo("Asia/Shanghai")
+ASSETS = {
+    "000688": {
+        "name": "科创50", "symbol": "sh000688", "type": "equity_index",
+        "unit": "点", "since": "20191231", "source_interface": "ak.stock_zh_index_daily",
+        "source_name": "新浪指数日线 / AKShare", "method": "未复权的指数收盘点位",
+        "cross_check_interface": "ak.stock_zh_index_hist_csindex",
+        "cross_check_name": "中证指数官方历史行情 / AKShare",
+    },
+    "399673": {
+        "name": "创业板50", "symbol": "sz399673", "type": "equity_index",
+        "unit": "点", "since": "20140101", "source_interface": "ak.stock_zh_index_daily",
+        "source_name": "新浪指数日线 / AKShare", "method": "未复权的指数收盘点位",
+        "cross_check_interface": "ak.stock_zh_index_daily_tx",
+        "cross_check_name": "腾讯指数日线 / AKShare",
+    },
+    "518880": {
+        "name": "华安黄金ETF", "symbol": "518880", "type": "gold_etf",
+        "unit": "元/份", "since": "20130718", "source_interface": "ak.fund_etf_hist_sina",
+        "source_name": "新浪ETF日行情 / AKShare",
+        "method": "场内未复权收盘价；不是Au99.99、ETF净值或复权总回报",
+        "cross_check_interface": "ak.stock_zh_a_hist_tx",
+        "cross_check_name": "腾讯证券日频行情 / AKShare",
+    },
+}
+
+
+class AssetDataError(ValueError):
+    pass
+
+
+def _canonical_date(raw) -> str:
+    if isinstance(raw, datetime):
+        return raw.date().isoformat()
+    if isinstance(raw, date):
+        return raw.isoformat()
+    v = str(raw).strip().replace("/", "-")
+    for fmt in ("%Y-%m-%d", "%Y%m%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(v, fmt).date().isoformat()
+        except ValueError:
+            pass
+    raise AssetDataError("无法解析行情日期: " + str(raw))
+
+
+def _worker(asset_id: str, result_queue):
+    try:
+        import akshare as ak
+        spec = ASSETS[asset_id]
+        if spec["type"] == "equity_index":
+            frame = ak.stock_zh_index_daily(symbol=spec["symbol"])
+            date_col, close_col = "date", "close"
+        else:
+            frame = ak.fund_etf_hist_sina(symbol="sh518880")
+            date_col, close_col = "date", "close"
+        cross_error = None
+        cross = None
+        identity = None
+        try:
+            if asset_id == "000688":
+                cross_frame = ak.stock_zh_index_hist_csindex(
+                    symbol="000688", start_date=spec["since"],
+                    end_date=datetime.now(TZ).strftime("%Y%m%d"),
+                )
+                cross_date_col, cross_close_col = "日期", "收盘"
+                if cross_frame is not None and not cross_frame.empty:
+                    identity = {
+                        "codes": sorted({str(value) for value in cross_frame["指数代码"].dropna().unique()}),
+                        "names": sorted({str(value) for value in cross_frame["指数中文简称"].dropna().unique()}),
+                    }
+            elif asset_id == "399673":
+                cross_frame = ak.stock_zh_index_daily_tx(
+                    symbol=spec["symbol"], start_date=spec["since"],
+                    end_date=datetime.now(TZ).strftime("%Y%m%d"),
+                )
+                cross_date_col, cross_close_col = "date", "close"
+            else:
+                cross_frame = ak.stock_zh_a_hist_tx(
+                    symbol="sh518880", start_date=spec["since"],
+                    end_date=datetime.now(TZ).strftime("%Y%m%d"), adjust="",
+                )
+                cross_date_col, cross_close_col = "date", "close"
+            cross = {
+                "columns": list(cross_frame.columns) if cross_frame is not None else [],
+                "date_col": cross_date_col, "close_col": cross_close_col,
+                "records": [] if cross_frame is None else cross_frame.to_dict(orient="records"),
+                "source_interface": spec["cross_check_interface"],
+                "source_name": spec["cross_check_name"],
+            }
+        except Exception as exc:
+            cross_error = type(exc).__name__ + ": " + str(exc)
+        result_queue.put({
+            "ok": True,
+            "version": str(getattr(ak, "__version__", "unknown")),
+            "columns": list(frame.columns) if frame is not None else [],
+            "date_col": date_col, "close_col": close_col,
+            "records": [] if frame is None else frame.to_dict(orient="records"),
+            "cross_check": cross, "cross_error": cross_error, "identity": identity,
+        })
+    except Exception as exc:
+        result_queue.put({"ok": False, "error": type(exc).__name__ + ": " + str(exc)})
+
+
+def fetch_history(asset_id: str, timeout_seconds: int = 65, fetcher=None) -> dict:
+    if asset_id not in ASSETS:
+        raise AssetDataError("不支持的观察标的: " + str(asset_id))
+    if fetcher is None:
+        ctx = multiprocessing.get_context("spawn")
+        results = ctx.Queue(maxsize=1)
+        process = ctx.Process(target=_worker, args=(asset_id, results), daemon=True)
+        process.start()
+        try:
+            try:
+                payload = results.get(timeout=timeout_seconds)
+            except queue.Empty as exc:
+                raise AssetDataError("AKShare指数/ETF请求超时或子进程异常") from exc
+        finally:
+            process.join(timeout=2)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+            results.close()
+    else:
+        payload = fetcher(asset_id)
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        raise AssetDataError("上游行情接口失败: " + str((payload or {}).get("error", "未知错误")))
+    cols = set(payload.get("columns") or [])
+    dcol, vcol = payload.get("date_col"), payload.get("close_col")
+    if not dcol or not vcol or not {dcol, vcol}.issubset(cols):
+        raise AssetDataError("上游历史行情字段结构改变，拒绝写库")
+    rows = []
+    seen = set()
+    earliest = _canonical_date(ASSETS[asset_id]["since"])
+    for record in payload.get("records") or []:
+        day = _canonical_date(record.get(dcol))
+        if day < earliest:
+            # Some indexes are back-calculated before the formal launch; do not
+            # silently load dates before the configured scope.
+            continue
+        if day > datetime.now(TZ).date().isoformat():
+            raise AssetDataError("返回包含未来日期，拒绝更新")
+        try:
+            level = float(record.get(vcol))
+        except (ValueError, TypeError, OverflowError):
+            raise AssetDataError("收盘价包含无法识别的值：" + day)
+        if not math.isfinite(level) or level <= 0:
+            raise AssetDataError("收盘价非正数或非有限值：" + day)
+        if day in seen:
+            raise AssetDataError("行情历史存在重复日期：" + day)
+        seen.add(day)
+        rows.append((day, level))
+    rows.sort()
+    if len(rows) < 30:
+        raise AssetDataError("有效历史少于30个交易日，拒绝更新")
+    if (datetime.now(TZ).date() - date.fromisoformat(rows[-1][0])).days > 45:
+        raise AssetDataError("数据源最新日期超过45天前，拒绝作为近期行情激活")
+    gaps = [
+        (date.fromisoformat(rows[index][0]) - date.fromisoformat(rows[index - 1][0])).days
+        for index in range(1, len(rows))
+    ]
+    verification = {
+        "status": "not_run",
+        "source_interface": ASSETS[asset_id]["cross_check_interface"],
+        "source_name": ASSETS[asset_id]["cross_check_name"],
+        "reason": "测试注入数据未提供独立交叉源",
+    }
+    cross = payload.get("cross_check")
+    if payload.get("cross_error"):
+        verification = {
+            **verification, "status": "unavailable", "reason": payload["cross_error"],
+        }
+    elif cross is not None:
+        cross_columns = set(cross.get("columns") or [])
+        cross_date_col, cross_close_col = cross.get("date_col"), cross.get("close_col")
+        if not cross_date_col or not cross_close_col or not {cross_date_col, cross_close_col}.issubset(cross_columns):
+            raise AssetDataError("独立交叉源字段结构改变，拒绝更新")
+        cross_values = {}
+        for record in cross.get("records") or []:
+            day = _canonical_date(record.get(cross_date_col))
+            if day > datetime.now(TZ).date().isoformat():
+                raise AssetDataError("独立交叉源包含未来日期：" + day)
+            if day in cross_values:
+                raise AssetDataError("独立交叉源存在重复日期：" + day)
+            value = record.get(cross_close_col)
+            try:
+                close = float(value)
+            except (ValueError, TypeError, OverflowError) as exc:
+                raise AssetDataError("独立交叉源包含无效收盘值：" + day) from exc
+            if math.isfinite(close) and close > 0:
+                cross_values[day] = close
+        primary_values = dict(rows)
+        common = sorted(set(primary_values) & set(cross_values))
+        if len(common) < 20:
+            raise AssetDataError(f"独立交叉源共同交易日仅 {len(common)} 条，拒绝更新")
+        sample = common[-30:]
+        relative = [abs(primary_values[day] - cross_values[day]) / cross_values[day] for day in sample]
+        max_relative = max(relative)
+        if max_relative > .0005:
+            raise AssetDataError(f"独立行情源最近同日收盘差异过大：{max_relative:.4%}")
+        identity = payload.get("identity")
+        if asset_id == "000688" and (
+            not identity or identity.get("codes") != ["000688"] or "科创50" not in identity.get("names", [])
+        ):
+            raise AssetDataError("科创50官方交叉源指数身份不匹配")
+        verification = {
+            "status": "verified", "source_interface": cross["source_interface"],
+            "source_name": cross["source_name"], "common_dates": len(common),
+            "sample_dates": len(sample), "sample_start": sample[0], "sample_end": sample[-1],
+            "max_relative_close_difference": max_relative,
+            "identity": identity, "reason": None,
+        }
+    return {
+        "asset_id": asset_id, "meta": ASSETS[asset_id],
+        "rows": rows, "version": str(payload.get("version") or "unknown"),
+        "first_date": rows[0][0], "last_date": rows[-1][0],
+        "verification": verification,
+        "quality": {
+            "frequency": "daily_trading_observations", "record_count": len(rows),
+            "max_calendar_gap_days": max(gaps) if gaps else 0,
+            "calendar_gaps_over_10_days": sum(gap > 10 for gap in gaps),
+            "duplicate_dates": 0, "invalid_close_values": 0,
+        },
+    }
+
+
+def connect(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    connection.executescript("""
+        CREATE TABLE IF NOT EXISTS asset_series (
+            asset_id TEXT PRIMARY KEY,
+            source_interface TEXT NOT NULL, source_name TEXT NOT NULL,
+            source_version TEXT, unit TEXT NOT NULL, method TEXT NOT NULL,
+            first_date TEXT NOT NULL, last_date TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            verification_json TEXT NOT NULL DEFAULT '{}',
+            quality_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE IF NOT EXISTS asset_close (
+            asset_id TEXT NOT NULL, date TEXT NOT NULL, close REAL NOT NULL,
+            PRIMARY KEY(asset_id, date)
+        );
+    """)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(asset_series)")}
+    if "verification_json" not in columns:
+        connection.execute("ALTER TABLE asset_series ADD COLUMN verification_json TEXT NOT NULL DEFAULT '{}'")
+    if "quality_json" not in columns:
+        connection.execute("ALTER TABLE asset_series ADD COLUMN quality_json TEXT NOT NULL DEFAULT '{}'")
+    return connection
+
+
+def update_history(asset_id: str, *, db_path: str | Path = DEFAULT_DB, fetcher=None):
+    if asset_id not in ASSETS:
+        raise AssetDataError("未知标的")
+    fresh = fetch_history(asset_id, fetcher=fetcher)
+    with closing(connect(db_path)) as db, db:
+        previous = db.execute(
+            "SELECT first_date,last_date FROM asset_series WHERE asset_id=?",
+            (asset_id,),
+        ).fetchone()
+        if previous and (
+            fresh["first_date"] > previous["first_date"]
+            or fresh["last_date"] < previous["last_date"]
+        ):
+            raise AssetDataError("新数据历史比当前活跃历史短，拒绝覆盖已保存的行情")
+        # Merge only from the identical explicit source and methodology.
+        # No provider fallback or price-source stitching.
+        spec = fresh["meta"]
+        existing = db.execute(
+            "SELECT source_interface,method FROM asset_series WHERE asset_id=?",
+            (asset_id,),
+        ).fetchone()
+        if existing and (existing["source_interface"], existing["method"]) != (
+            spec["source_interface"], spec["method"]
+        ):
+            raise AssetDataError("行情来源或方法改变，拒绝静默拼接")
+        db.executemany(
+            "INSERT INTO asset_close(asset_id,date,close) VALUES(?,?,?) "
+            "ON CONFLICT(asset_id,date) DO UPDATE SET close=excluded.close",
+            ((asset_id, day, close) for day, close in fresh["rows"]),
+        )
+        db.execute("""
+            INSERT INTO asset_series(asset_id,source_interface,source_name,source_version,
+                                     unit,method,first_date,last_date,fetched_at,
+                                     verification_json,quality_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(asset_id) DO UPDATE SET
+                source_version=excluded.source_version,
+                first_date=excluded.first_date,last_date=excluded.last_date,
+                fetched_at=excluded.fetched_at,
+                verification_json=excluded.verification_json,
+                quality_json=excluded.quality_json
+        """, (
+            asset_id, spec["source_interface"], spec["source_name"], fresh["version"],
+            spec["unit"], spec["method"], fresh["first_date"], fresh["last_date"],
+            datetime.now(timezone.utc).isoformat(),
+            json.dumps(fresh["verification"], ensure_ascii=False),
+            json.dumps(fresh["quality"], ensure_ascii=False),
+        ))
+    return {"asset": asset_id, "name": ASSETS[asset_id]["name"],
+            "count": len(fresh["rows"]), "last_date": fresh["last_date"],
+            "source": fresh["meta"]["source_interface"]}
+
+
+def _statistics(rows: list[dict], span: str) -> dict:
+    if not rows:
+        return {"available": False, "reason": "无真实数据"}
+    last = date.fromisoformat(rows[-1]["date"])
+    periods = {"3m": 3, "6m": 6, "1y": 12, "3y": 36, "5y": 60, "8y": 96, "10y": 120}
+    if span not in periods and span != "all":
+        raise AssetDataError("不支持的区间")
+    if span == "all":
+        selected = rows
+    else:
+        months = periods[span]
+        absolute = last.year * 12 + last.month - 1 - months
+        year, month0 = divmod(absolute, 12)
+        cutoff = date(year, month0 + 1, min(last.day, 28)).isoformat()
+        before = [i for i, row in enumerate(rows) if row["date"] <= cutoff]
+        if not before:
+            return {"available": False, "reason": "历史记录不足以覆盖" + span}
+        start_i = before[-1]
+        if abs((date.fromisoformat(rows[start_i]["date"]) - date.fromisoformat(cutoff)).days) > 14:
+            return {"available": False, "reason": "区间起点存在大幅数据缺口"}
+        selected = rows[start_i:]
+    if len(selected) < 2:
+        return {"available": False, "reason": "有效历史不足"}
+    price0, price1 = selected[0]["close"], selected[-1]["close"]
+    peak = selected[0]["close"]
+    worst = 0.0
+    for item in selected:
+        peak = max(peak, item["close"])
+        worst = min(worst, item["close"]/peak - 1.0)
+    return {
+        "available": True, "start": selected[0]["date"], "end": selected[-1]["date"],
+        "samples": len(selected), "return_pct": (price1/price0 - 1.0)*100,
+        "max_drawdown_pct": worst*100, "last_close": price1,
+        "high": max(item["close"] for item in selected),
+        "low": min(item["close"] for item in selected),
+    }
+
+
+
+def _price_quality(rows: list[dict], *, asof: date | None = None) -> dict:
+    """Describe staleness, sparse source history and unadjusted price jumps.
+
+    Warnings are informational; they are not evidence of stock exchange
+    suspension, a fund split, or any corporate action.
+    """
+    if not rows:
+        return {"age_days": None, "max_gap_days": None, "large_daily_jumps": [],
+                "warnings": ["没有真实收盘样本"]}
+    asof = asof or datetime.now(TZ).date()
+    age_days = (asof - date.fromisoformat(rows[-1]["date"])).days
+    gaps = [
+        (date.fromisoformat(curr["date"]) - date.fromisoformat(prev["date"])).days
+        for prev, curr in zip(rows, rows[1:])
+    ]
+    max_gap = max(gaps, default=0)
+    large_jumps = [
+        {"date": curr["date"], "change_pct": round(100 * (curr["close"] / prev["close"] - 1), 2)}
+        for prev, curr in zip(rows, rows[1:])
+        if abs(curr["close"] / prev["close"] - 1) >= .30
+    ]
+    warnings = []
+    if age_days > 10:
+        warnings.append(f"最近记录距今 {age_days} 天，行情可能过期")
+    if max_gap > 20:
+        warnings.append(f"相邻收盘记录最大间隔 {max_gap} 天，区间收益可能受缺失数据影响")
+    if large_jumps:
+        warnings.append(f"存在 {len(large_jumps)} 次单条记录间涨跌幅达到30%的跳变，可能涉及数据错误、停牌或ETF份额调整；不能直接解释为可实现收益")
+    return {"age_days": age_days, "max_gap_days": max_gap,
+            "large_daily_jumps": large_jumps[:20], "warnings": warnings}
+
+
+def report(asset_id: str, db_path: str | Path = DEFAULT_DB) -> dict:
+    if asset_id not in ASSETS:
+        raise AssetDataError("未知观察标的")
+    meta = ASSETS[asset_id]
+    if not Path(db_path).exists():
+        return {"available": False, "asset": asset_id, "meta": meta, "message": "尚未采集真实价格", "rows": [], "stats": {}}
+    with closing(connect(db_path)) as db:
+        source = db.execute("SELECT * FROM asset_series WHERE asset_id=?", (asset_id,)).fetchone()
+        if source is None:
+            return {"available": False, "asset": asset_id, "meta": meta, "message": "尚未采集真实价格", "rows": [], "stats": {}}
+        rows = [dict(row) for row in db.execute(
+            "SELECT date, close FROM asset_close WHERE asset_id=? ORDER BY date",
+            (asset_id,)
+        )]
+        source = dict(source)
+        source["verification"] = json.loads(source.pop("verification_json", "{}"))
+        source["quality"] = json.loads(source.pop("quality_json", "{}"))
+    return {
+        "available": True, "asset": asset_id, "meta": meta, "source": source,
+        "rows": rows,
+        "quality": _price_quality(rows),
+        "stats": {window: _statistics(rows, window) for window in ("3m", "6m", "1y", "3y", "5y", "8y", "10y", "all")},
+        "notice": "仅价格变化，不含ETF分红再投资或交易费用；不提供PE/PB。场内黄金ETF价格不能替代黄金现货。",
+    }
+
+
+def overview(db_path: str | Path = DEFAULT_DB) -> dict:
+    return {
+        "assets": [
+            {"asset": code, "name": spec["name"], "type": spec["type"],
+             "available": (result := report(code, db_path))["available"],
+             "last_date": result.get("source", {}).get("last_date"),
+             "count": len(result["rows"])}
+            for code, spec in ASSETS.items()
+        ],
+    }
