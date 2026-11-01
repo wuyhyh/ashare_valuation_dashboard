@@ -537,6 +537,8 @@ def main():
     verify_parser.add_argument("--capture-id", default=None, help="默认核验最新捕获，可指定历史捕获ID")
     verify_parser.add_argument("--reference", choices=["sina", "eastmoney"], default="sina",
                                help="独立参考日线来源，必须与市场快照来源不同")
+    verify_parser.add_argument("--dry-run", action="store_true",
+                               help="仅联网核验并打印结果，不修改本地SQLite快照")
     doctor = sub.add_parser("doctor", help="无需联网：查看当前源码、SQLite 路径与12条真实数据的覆盖情况")
     sync_parser = sub.add_parser("sync", help="显式联网更新四指数点位及PE/PB；启动服务本身不会更新")
     sync_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="csindex_official")
@@ -601,6 +603,7 @@ def main():
         try:
             report = breadth_verify_close(
                 BREADTH_DB, capture_id=args.capture_id, reference_provider=args.reference,
+                dry_run=args.dry_run,
             )
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
