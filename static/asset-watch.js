@@ -42,6 +42,7 @@ function bindAdaptiveZoom(){
  });
 }
 function showEmpty(msg){
+ byId("asset-quality").hidden=true;
  byId("asset-empty").textContent=msg;
  byId("asset-empty").hidden=false;
  byId("asset-chart").hidden=true;
@@ -64,6 +65,9 @@ function render(){
  byId("asset-samples").textContent=String(stats.samples)+" 条";
  const source=p.source;
  byId("asset-meta").textContent="日期 "+stats.start+" → "+stats.end+" · 来源 "+source.source_name+" ("+source.source_interface+") · AKShare "+source.source_version+" · 全部历史 "+source.first_date+" → "+source.last_date+" · "+source.method+" · 采集时间 "+source.fetched_at;
+ const warnings=p.quality?.warnings||[];
+ byId("asset-quality").hidden=!warnings.length;
+ byId("asset-quality").textContent=warnings.join("；");
  const dtick=axisDtick(state.window);
  Plotly.react("asset-chart",[{
    x:selected.map(x=>x.date),y:selected.map(x=>x.close),type:"scattergl",mode:"lines",
