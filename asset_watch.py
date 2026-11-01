@@ -247,6 +247,39 @@ def _statistics(rows: list[dict], span: str) -> dict:
     }
 
 
+
+def _price_quality(rows: list[dict], *, asof: date | None = None) -> dict:
+    """Describe staleness, sparse source history and unadjusted price jumps.
+
+    Warnings are informational; they are not evidence of stock exchange
+    suspension, a fund split, or any corporate action.
+    """
+    if not rows:
+        return {"age_days": None, "max_gap_days": None, "large_daily_jumps": [],
+                "warnings": ["没有真实收盘样本"]}
+    asof = asof or datetime.now(TZ).date()
+    age_days = (asof - date.fromisoformat(rows[-1]["date"])).days
+    gaps = [
+        (date.fromisoformat(curr["date"]) - date.fromisoformat(prev["date"])).days
+        for prev, curr in zip(rows, rows[1:])
+    ]
+    max_gap = max(gaps, default=0)
+    large_jumps = [
+        {"date": curr["date"], "change_pct": round(100 * (curr["close"] / prev["close"] - 1), 2)}
+        for prev, curr in zip(rows, rows[1:])
+        if abs(curr["close"] / prev["close"] - 1) >= .30
+    ]
+    warnings = []
+    if age_days > 10:
+        warnings.append(f"最近记录距今 {age_days} 天，行情可能过期")
+    if max_gap > 20:
+        warnings.append(f"相邻收盘记录最大间隔 {max_gap} 天，区间收益可能受缺失数据影响")
+    if large_jumps:
+        warnings.append(f"存在 {len(large_jumps)} 次单条记录间涨跌幅达到30%的跳变，可能涉及数据错误、停牌或ETF份额调整；不能直接解释为可实现收益")
+    return {"age_days": age_days, "max_gap_days": max_gap,
+            "large_daily_jumps": large_jumps[:20], "warnings": warnings}
+
+
 def report(asset_id: str, db_path: str | Path = DEFAULT_DB) -> dict:
     if asset_id not in ASSETS:
         raise AssetDataError("未知观察标的")
@@ -265,6 +298,7 @@ def report(asset_id: str, db_path: str | Path = DEFAULT_DB) -> dict:
     return {
         "available": True, "asset": asset_id, "meta": meta, "source": source,
         "rows": rows,
+        "quality": _price_quality(rows),
         "stats": {window: _statistics(rows, window) for window in ("3m", "6m", "1y", "3y", "5y", "8y", "10y", "all")},
         "notice": "仅价格变化，不含ETF分红再投资或交易费用；不提供PE/PB。场内黄金ETF价格不能替代黄金现货。",
     }
