@@ -36,6 +36,7 @@ from data_sources import (
     update_history,
     update_index_history,
 )
+from data_sources.market import MARKET_HISTORY_START
 from data_sources.storage import connect as storage_connect
 from decomposition import analyze
 from breadth import DEFAULT_DB as BREADTH_DB, latest_report as breadth_latest_report, update_from_akshare as breadth_update_from_akshare
@@ -178,12 +179,8 @@ def _sqlite_backup_for_sync():
     return backup
 
 
-MARKET_SYNC_START = {
-    "000016": "20050101",
-    "000300": "20050408",
-    "000905": "20070101",
-    "000852": "20140101",
-}
+# Kept as a public alias for existing callers and offline tests.
+MARKET_SYNC_START = MARKET_HISTORY_START
 
 
 def sync_all_real_data(*, provider="csindex_official", only_missing=False, pause_seconds=2.0):
