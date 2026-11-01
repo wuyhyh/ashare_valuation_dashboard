@@ -32,15 +32,27 @@ def main() -> None:
             "ak.stock_zh_a_spot_em", "ak.stock_zh_a_spot_tx", "ak.stock_zh_a_spot",
         }
         pool = breadth["capture"]["quality"]["official_pool"]
-        assert pool["official_count"] >= 1000
-        assert pool["coverage_ratio"] >= .95
-        assert breadth["groups"]["ALL_all"]["identified_mainboard"] == pool["matched_count"]
+        assert breadth["capture"]["coverage_scope"].startswith("sh_sz_all_a")
+        assert all(pool["boards"][board]["coverage_ratio"] >= .95
+                   for board in ("SH_MAIN", "SZ_MAIN", "CHINEXT", "STAR"))
+        sh_sz_official = sum(pool["boards"][board]["official_count"]
+                             for board in ("SH_MAIN", "SZ_MAIN", "CHINEXT", "STAR"))
+        assert breadth["groups"]["SH_SZ_ALL_all"]["identified_count"] == sh_sz_official
+        assert breadth["groups"]["MAIN_ALL_all"]["identified_count"] < sh_sz_official
+        assert breadth["groups"]["CHINEXT_all"]["identified_count"] > 1000
+        assert breadth["groups"]["STAR_all"]["identified_count"] > 500
+        assert pool["special_security_count"] >= 1
+        if "BSE" in breadth["available_scopes"]:
+            assert pool["boards"]["BSE"]["coverage_ratio"] >= .95
+            page.locator("#breadth-exchange").select_option("BSE")
+            assert page.locator("#b-coverage").inner_text() == "100.0%"
+        page.locator("#breadth-exchange").select_option("SH_SZ_ALL")
         assert "未验证" in page.locator("#breadth-date-trust").inner_text()
-        page.screenshot(path=str(ARTIFACTS / "v09-real-breadth-desktop.png"), full_page=True)
+        page.screenshot(path=str(ARTIFACTS / "v010-real-breadth-desktop.png"), full_page=True)
         page.set_viewport_size({"width": 390, "height": 844})
         page.wait_for_timeout(250)
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 4")
-        page.screenshot(path=str(ARTIFACTS / "v09-real-breadth-mobile.png"), full_page=True)
+        page.screenshot(path=str(ARTIFACTS / "v010-real-breadth-mobile.png"), full_page=True)
 
         page.set_viewport_size({"width": 1440, "height": 1000})
         page.goto(BASE_URL + "/assets.html", wait_until="networkidle")
@@ -84,7 +96,7 @@ def main() -> None:
         page.screenshot(path=str(ARTIFACTS / "v09-real-assets-mobile.png"), full_page=True)
         assert not errors, errors
         browser.close()
-    print("v0.9 real SQLite Playwright acceptance passed")
+    print("v0.10 real SQLite Playwright acceptance passed")
 
 
 if __name__ == "__main__":

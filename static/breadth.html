@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>市场宽度 · VALUE LAB</title>
   <link rel="stylesheet" href="/styles.css?v=0.8.1" />
-  <link rel="stylesheet" href="/breadth.css?v=0.9.1" />
+  <link rel="stylesheet" href="/breadth.css?v=0.10" />
 </head>
 <body>
   <div class="shell">
@@ -18,22 +18,34 @@
       <div class="sidebar-bottom"><div class="small-dot"></div><span>只在本地运行 · 数据自主管理</span></div>
     </aside>
     <main class="main">
-      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场宽度</b></div><div class="header-right"><span class="tag">v0.9 WIP</span></div></header>
+      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场宽度</b></div><div class="header-right"><span class="tag">v0.10 WIP</span></div></header>
       <div class="content">
-        <div class="page-header"><div><div class="eyebrow">MARKET BREADTH</div><h1>沪深主板市场宽度</h1><p>基于可追溯的实际股票快照统计，区分上涨、下跌与未成交样本。</p></div></div>
+        <div class="page-header"><div><div class="eyebrow">MARKET BREADTH</div><h1>沪深 A 股市场宽度</h1><p>默认覆盖沪深主板、创业板和科创板；北交所独立核验和展示。</p></div></div>
         <div class="breadth-notice"><strong>时点数据说明</strong> · 本页面显示的是本机采集的股票报价快照，采集时间不自动等于证券交易所的交易日期。暂不提供未经核验的历史宽度走势。</div>
         <section class="breadth-panel">
           <div class="breadth-controls">
             <label>市场范围
-              <select id="breadth-exchange"><option value="ALL">沪深主板合计</option><option value="SH">上海主板</option><option value="SZ">深圳主板</option></select>
+              <select id="breadth-exchange">
+                <option value="SH_SZ_ALL">沪深 A 股合计</option><option value="MAIN_ALL">沪深主板合计</option>
+                <option value="SH_MAIN">上海主板</option><option value="SZ_MAIN">深圳主板</option>
+                <option value="CHINEXT">创业板</option><option value="STAR">科创板（不含 CDR）</option>
+                <option value="BSE">北交所</option><option value="ALL_A">全部 A 股（含北交所）</option>
+              </select>
             </label>
             <label class="breadth-check"><input id="breadth-no-st" type="checkbox" /> 排除 ST / 退市风险警示</label>
             <button id="breadth-reload" class="btn btn-outline">↻ 重新检查本机数据</button>
           </div>
           <div id="breadth-empty" class="breadth-empty" hidden>当前本机尚无真实市场宽度快照。请在项目终端执行 <code>python app.py breadth-update</code>，再刷新本页。仅查看页面不会联网采集。</div>
           <div id="breadth-report" hidden>
+            <div id="breadth-scope-warning" class="breadth-scope-warning" hidden></div>
             <div class="breadth-meta">
               <span id="breadth-captured">采集时间 —</span><span id="breadth-source">来源 —</span><span id="breadth-date-trust">交易日未验证</span>
+            </div>
+            <div class="breadth-board-grid" id="breadth-board-grid">
+              <button type="button" data-scope="MAIN_ALL"><span>主板合计</span><strong>—</strong><small>—</small></button>
+              <button type="button" data-scope="CHINEXT"><span>创业板</span><strong>—</strong><small>—</small></button>
+              <button type="button" data-scope="STAR"><span>科创板</span><strong>—</strong><small>—</small></button>
+              <button type="button" data-scope="BSE"><span>北交所（独立）</span><strong>—</strong><small>—</small></button>
             </div>
             <div class="breadth-kpis">
               <div><small>上涨股票</small><strong id="b-up">—</strong></div>
@@ -45,7 +57,7 @@
             <div class="breadth-bar" aria-label="上涨、平盘和下跌占比"><span id="b-up-bar" class="b-up"></span><span id="b-flat-bar" class="b-flat"></span><span id="b-down-bar" class="b-down"></span></div>
             <div class="breadth-legend"><span>上涨</span><span>平盘</span><span>下跌</span></div>
             <div class="breadth-extra">
-              <div><span>主板识别数量</span><b id="b-identified">—</b></div>
+              <div><span>当前范围识别数量</span><b id="b-identified">—</b></div>
               <div><span>当前口径样本</span><b id="b-selected">—</b></div>
               <div><span>有成交样本（统计分母）</span><b id="b-traded">—</b></div>
               <div><span>无成交 / 缺失报价</span><b id="b-untraded">—</b></div>
@@ -53,16 +65,16 @@
               <div><span>涨跌幅中位数</span><b id="b-median">—</b></div>
               <div><span>成交额加权涨跌幅</span><b id="b-weighted">—</b></div>
               <div><span>原始接口返回股票数</span><b id="b-raw">—</b></div>
-              <div><span>交易所官方主板名录</span><b id="b-pool">—</b></div>
+              <div><span>交易所官方名录</span><b id="b-pool">—</b></div>
               <div><span>行情名录覆盖率</span><b id="b-coverage">—</b></div>
             </div>
           </div>
         </section>
         <div class="breadth-notice subtle" id="breadth-history">历史宽度：需要经过交易日核验的多次可比快照，不能用当前股票名单追溯构造过去的数据。</div>
-        <p class="breadth-foot">方法论：仅统计所选股票池中可验证价格和涨跌幅、且成交额大于零的样本。行情代码会与上交所主板A股、深交所A股列表中的主板名录独立核对；未交易和缺失样本单独展示。上涨占比不是买卖信号。</p>
+        <p class="breadth-foot">方法论：市场统计范围与个人交易权限分离。同一快照仅使用一个行情源和一个采集时点，逐板与交易所官方名录核对；689 CDR 不计入默认 A 股分母。未交易和缺失样本单独展示，上涨占比不是买卖信号。</p>
       </div>
     </main>
   </div>
-  <script src="/breadth.js?v=0.9.1"></script>
+  <script src="/breadth.js?v=0.10"></script>
 </body>
 </html>

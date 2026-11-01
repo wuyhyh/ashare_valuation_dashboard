@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import json
+import sqlite3
 import threading
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -20,10 +21,15 @@ def q(code, name, change, price=10.0, turnover=1000.0):
 
 
 def official_pool_for(rows):
-    return {
-        row["代码"]: {"exchange": breadth.mainboard_exchange(row["代码"]), "name": row["名称"]}
-        for row in rows
-    }
+    pool = {}
+    for row in rows:
+        code = row["代码"]
+        board = breadth.fallback_board(code)
+        pool[code] = {
+            "exchange": breadth.BOARD_INFO[board]["exchange"], "board": board,
+            "security_type": "A_SHARE", "name": row["名称"],
+        }
+    return pool
 
 
 def test_mainboard_classification_boundary():
@@ -36,6 +42,14 @@ def test_mainboard_classification_boundary():
         assert breadth.mainboard_exchange(code) is None
 
 
+def test_board_fallback_boundaries_keep_cdr_and_bse_out_without_official_identity():
+    assert breadth.fallback_board("300001") == "CHINEXT"
+    assert breadth.fallback_board("301001") == "CHINEXT"
+    assert breadth.fallback_board("688001") == "STAR"
+    assert breadth.fallback_board("689009") is None
+    assert breadth.fallback_board("920001") is None
+
+
 def test_normalization_does_not_count_no_trade_as_flat():
     rows = [q("600000", "浦发银行", 1.2), q("000001", "平安银行", -2.0),
             q("002001", "ST测试", 0), q("603001", "普通停牌", 0, turnover=0),
@@ -43,7 +57,8 @@ def test_normalization_does_not_count_no_trade_as_flat():
             q("300001", "创业板", 8)]
     quotes, checks = breadth.normalize_quotes(rows)
     result = breadth.summarize(quotes)
-    assert checks["not_mainboard"] == 1
+    assert checks["not_in_official_pool"] == 0
+    assert checks["identified_sh_sz_a"] == 6
     assert result["identified_mainboard"] == 5
     assert result["advances"] == 1 and result["declines"] == 1 and result["unchanged"] == 1
     assert result["zero_turnover_count"] == 1
@@ -88,19 +103,22 @@ def test_tencent_schema_is_canonicalized_with_explicit_turnover_unit():
 
 
 def test_official_pool_coverage_is_recorded_and_low_coverage_rejected():
-    rows = [q("600001", "沪市", 1), q("000001", "深市", -1)]
+    rows = [q("600001", "沪市", 1), q("000001", "深市", -1),
+            q("300001", "创业板", 2), q("688001", "科创板", -2)]
     capture = breadth.create_capture(
         rows, source_name="test", source_interface="fixture", min_identified=1,
         official_pool=official_pool_for(rows),
     )
     audit = capture["quality"]["official_pool"]
     assert audit["coverage_ratio"] == 1
-    assert audit["exchange"]["SH"]["official_count"] == 1
-    incomplete = {**official_pool_for(rows), "600002": {"exchange": "SH", "name": "缺失"}}
-    with pytest.raises(breadth.BreadthError, match="官方主板名录覆盖不足"):
+    assert audit["boards"]["SH_MAIN"]["official_count"] == 1
+    incomplete = {**official_pool_for(rows), "688002": {
+        "exchange": "SH", "board": "STAR", "security_type": "A_SHARE", "name": "缺失",
+    }}
+    with pytest.raises(breadth.BreadthError, match="官方板块名录覆盖不足"):
         breadth.create_capture(
             rows, source_name="test", source_interface="fixture", min_identified=1,
-            official_pool=incomplete,
+            official_pool=incomplete, min_official_coverage=.75,
         )
 
 
@@ -142,6 +160,160 @@ def test_extreme_changes_and_official_name_mismatches_are_audited_not_deleted():
     assert capture["quality"]["extreme_change_count"] == 1
     assert capture["quality"]["official_pool"]["name_mismatch_count"] == 1
     assert len(capture["quotes"]) == 2
+
+
+def test_star_listing_suffix_does_not_create_false_identity_mismatch():
+    rows = [q("688001", "科创样本-UW", 1)]
+    pool = official_pool_for([q("688001", "科创样本", 1)])
+    capture = breadth.create_capture(
+        rows, source_name="test", source_interface="fixture", min_identified=1,
+        official_pool=pool,
+    )
+    assert capture["quality"]["official_pool"]["name_mismatch_count"] == 0
+
+
+def test_official_parser_classifies_four_boards_bse_and_excludes_689_cdr_from_a_share():
+    payload = {
+        "ok": True,
+        "sh_main_columns": ["证券代码", "证券简称"],
+        "sh_star_columns": ["证券代码", "证券简称"],
+        "sz_columns": ["板块", "A股代码", "A股简称"],
+        "bse_columns": ["证券代码", "证券简称"],
+        "sh_main": [{"证券代码": "600001", "证券简称": "沪主板"}],
+        "sh_star": [
+            {"证券代码": "688001", "证券简称": "科创股"},
+            {"证券代码": "689009", "证券简称": "九号公司"},
+        ],
+        "sz": [
+            {"板块": "主板", "A股代码": "000001", "A股简称": "深主板"},
+            {"板块": "创业板", "A股代码": "302132", "A股简称": "创业板特殊前缀"},
+        ],
+        "bse": [{"证券代码": "920001", "证券简称": "北交所"}],
+        "bse_error": None,
+    }
+    result = breadth.fetch_official_pool(fetcher=lambda: payload)
+    members = result["members"]
+    assert members["600001"]["board"] == "SH_MAIN"
+    assert members["000001"]["board"] == "SZ_MAIN"
+    assert members["302132"]["board"] == "CHINEXT"
+    assert members["688001"]["board"] == "STAR"
+    assert members["689009"]["security_type"] == "CDR"
+    assert members["920001"]["board"] == "BSE"
+    assert result["board_counts"] == {
+        "SH_MAIN": 1, "SZ_MAIN": 1, "CHINEXT": 1, "STAR": 1, "BSE": 1,
+    }
+
+
+def test_board_slices_sum_to_same_single_source_snapshot_without_cdr_pollution():
+    rows = [
+        q("600001", "沪主", 1), q("000001", "深主", -1), q("300001", "创业", 2),
+        q("688001", "科创", -2), q("689009", "CDR", 3), q("920001", "北交", 0),
+    ]
+    pool = official_pool_for([row for row in rows if row["代码"] not in ("689009", "920001")])
+    pool["689009"] = {"exchange": "SH", "board": "STAR", "security_type": "CDR", "name": "CDR"}
+    pool["920001"] = {"exchange": "BJ", "board": "BSE", "security_type": "A_SHARE", "name": "北交"}
+    capture = breadth.create_capture(
+        rows, source_name="fixture", source_interface="one.snapshot", min_identified=1,
+        official_pool=pool,
+    )
+    assert capture["coverage_scope"] == "sh_sz_all_a_with_bse"
+    assert breadth.summarize(capture["quotes"], scope="MAIN_ALL")["identified_count"] == 2
+    assert breadth.summarize(capture["quotes"], scope="SH_SZ_ALL")["identified_count"] == 4
+    assert breadth.summarize(capture["quotes"], scope="BSE")["identified_count"] == 1
+    assert breadth.summarize(capture["quotes"], scope="ALL_A")["identified_count"] == 5
+    assert capture["quality"]["excluded_special_security"] == 1
+    assert sum(
+        breadth.summarize(capture["quotes"], scope=board)["identified_count"]
+        for board in breadth.SH_SZ_BOARDS
+    ) == breadth.summarize(capture["quotes"], scope="SH_SZ_ALL")["identified_count"]
+
+
+def test_official_pool_excludes_unexpected_prefix_matching_quote_from_all_denominators_and_db():
+    rows = [
+        q("600001", "沪主", 1), q("000001", "深主", -1),
+        q("302132", "创业板特殊代码", 2), q("688001", "科创", -2),
+        q("689009", "九号公司-WD", 3),
+        q("920001", "北交所样本", 1),
+        q("688999", "伪造名录外科创报价", 20),
+    ]
+    pool = {
+        "600001": {"exchange": "SH", "board": "SH_MAIN", "security_type": "A_SHARE", "name": "沪主"},
+        "000001": {"exchange": "SZ", "board": "SZ_MAIN", "security_type": "A_SHARE", "name": "深主"},
+        "302132": {"exchange": "SZ", "board": "CHINEXT", "security_type": "A_SHARE", "name": "创业板特殊代码"},
+        "688001": {"exchange": "SH", "board": "STAR", "security_type": "A_SHARE", "name": "科创"},
+        "689009": {"exchange": "SH", "board": "STAR", "security_type": "CDR", "name": "九号公司"},
+        "920001": {"exchange": "BJ", "board": "BSE", "security_type": "A_SHARE", "name": "北交所样本"},
+    }
+    capture = breadth.create_capture(
+        rows, source_name="fixture", source_interface="one.snapshot", min_identified=1,
+        official_pool=pool,
+    )
+    all_market = breadth.summarize(capture["quotes"], scope="SH_SZ_ALL")
+    assert all_market["identified_count"] == 4
+    assert all_market["advances"] == 2
+    assert all_market["declines"] == 2
+    assert all_market["advance_ratio"] == .5
+    assert breadth.summarize(capture["quotes"], scope="BSE")["identified_count"] == 1
+    assert breadth.summarize(capture["quotes"], scope="ALL_A")["identified_count"] == 5
+    assert capture["quality"]["unexpected_quote_count"] == 1
+    assert capture["quality"]["unexpected_quote_sample"] == ["688999"]
+    assert capture["quality"]["not_in_official_pool"] == 1
+    assert capture["quality"]["excluded_special_security"] == 1
+    assert capture["quality"]["exclusion_reasons"] == {
+        "outside_official_pool": 1, "special_security_type": 1, "invalid_code": 0,
+    }
+    assert {row["code"] for row in capture["quotes"]} == {
+        "600001", "000001", "302132", "688001", "689009", "920001",
+    }
+
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = Path(directory) / "breadth.sqlite3"
+        breadth.persist_capture(capture, db_path)
+        report = breadth.latest_report(db_path)
+        assert report["groups"]["SH_SZ_ALL_all"]["identified_count"] == 4
+        assert report["groups"]["BSE_all"]["identified_count"] == 1
+        assert report["groups"]["ALL_A_all"]["identified_count"] == 5
+        assert report["capture"]["quality"]["unexpected_quote_count"] == 1
+        with sqlite3.connect(db_path) as db:
+            assert db.execute(
+                "SELECT COUNT(*) FROM breadth_quotes WHERE code='688999'"
+            ).fetchone()[0] == 0
+
+
+def test_v09_sqlite_migrates_as_mainboard_only_without_fake_empty_growth_boards():
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = Path(directory) / "old.sqlite3"
+        db = sqlite3.connect(db_path)
+        db.executescript("""
+            CREATE TABLE breadth_captures (
+              capture_id TEXT PRIMARY KEY,captured_at_utc TEXT,capture_local_date TEXT,
+              trading_date TEXT,trading_date_verified INTEGER,source_name TEXT,
+              source_interface TEXT,source_version TEXT,quote_date_note TEXT,quality_json TEXT
+            );
+            CREATE TABLE breadth_quotes (
+              capture_id TEXT,code TEXT,name TEXT,exchange TEXT,risk_warning INTEGER,
+              price REAL,change_pct REAL,turnover REAL,valid_quote INTEGER,traded INTEGER,
+              PRIMARY KEY(capture_id,code)
+            );
+        """)
+        db.execute(
+            "INSERT INTO breadth_captures VALUES(?,?,?,?,?,?,?,?,?,?)",
+            ("old", "2026-11-01T00:00:00+00:00", "2026-11-01", None, 0, "old", "old.api", "v0.9",
+             "legacy", json.dumps({"raw_count": 2, "identified_mainboard": 2})),
+        )
+        db.executemany(
+            "INSERT INTO breadth_quotes VALUES(?,?,?,?,?,?,?,?,?,?)",
+            [("old", "600001", "沪", "SH", 0, 10, 1, 100, 1, 1),
+             ("old", "000001", "深", "SZ", 0, 10, -1, 100, 1, 1)],
+        )
+        db.commit(); db.close()
+        report = breadth.latest_report(db_path)
+        assert report["capture"]["coverage_scope"] == "mainboard_only"
+        assert report["default_scope"] == "MAIN_ALL"
+        assert report["available_scopes"] == ["SH_MAIN", "SZ_MAIN", "MAIN_ALL"]
+        assert "CHINEXT_all" not in report["groups"]
+        assert report["groups"]["MAIN_ALL_all"]["identified_count"] == 2
+        assert "仅覆盖沪深主板" in report["scope_warning"]
 
 
 def test_capture_time_is_not_mislabelled_as_trading_date():

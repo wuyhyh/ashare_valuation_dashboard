@@ -1,3 +1,16 @@
+## v0.10 全 A 股市场宽度（Issue #9，Draft）
+- 开发分支：`feat/v010-all-a-share-breadth`，基于尚未合并的 `feat/v09-market-breadth`；目标 PR 基线为 v0.9，不修改或合并 `main`。
+- 默认市场范围已从沪深主板扩展为上海主板、深圳主板、创业板、科创板合计；主板合计与各板块可独立查看，北交所作为独立范围显示且不计入默认沪深 A 股。
+- 股票身份由上交所 `主板A股/科创板`、深交所 `A股列表` 和北交所官方证券名录决定，不受个人交易权限或自选股影响；`689009` CDR 单列排除，`302132` 按深交所官方创业板身份纳入。
+- `breadth.sqlite3` 采用向后兼容迁移：新增 `coverage_scope`、`board`、`security_type`；v0.9 旧快照回填为 `mainboard_only`，不能被新页面当作全市场快照或历史数据。
+- 2026-11-01 使用 AKShare `1.20.18` 真实联网：腾讯快照 `5,577` 行；可统计 A 股 `5,576` 只，其中沪深 `5,222`、北交所 `354`，另有 `1` 只科创板 CDR。上海主板 `1,700/1,700`、深圳主板 `1,494/1,494`、创业板 `1,411/1,411`、科创板 A 股 `617/617`、北交所 `354/354`，代码覆盖均为 `100%`，名称差异为 `0`。
+- 最新真实快照 `a1ead997208849258f8cf810cfed46a3`：沪深 A 股有效报价 `5,222`、有效成交 `5,216`、零成交 `6`、缺失报价 `0`、风险警示 `194`、名录外报价 `0`；采集时点为周日，交易日期仍未核验，因此不生成历史市场宽度曲线。
+- 页面已通过真实 SQLite 的桌面端和 390px Playwright 验收；初审修复后的离线完整回归为 `108 passed, 24 subtests passed`、`40` 项 unittest、Node 日期轴以及 Python/JavaScript 语法检查。
+- 实现提交：`a708cdb5ffe336d36c4f240dc85e6b218e82c1aa`；GitHub Actions push run `#41267522924` 的 Python/Node 与 Chromium Playwright 作业均通过。
+- Draft PR #10 以 `feat/v09-market-breadth` 为目标分支，等待 ChatGPT 终审，不合并 main。完整证据见 `docs/V010_BREADTH_AUDIT.md`。
+- PR #10 初审指出名录外六位代码曾可能回退到前缀分类；现已在标准化入口隔离，质量结果明确记录数量、样例和排除原因，并增加真实特殊代码、CDR、北交所和 SQLite 不落库回归。
+- 初审修复提交 `0f6c1bb0f559d2fd4aef392385ac5a1096dd2f2b`，北交所测试修正提交 `3b3cab4a12c490dfb22aa54780e326b2c3e00794`；最新 GitHub Actions run `#41284932379` 成功。
+
 ## v0.9 跨资产观察增量（Issue #8，尚未发布）
 - 在同一分支增加 `asset_watch.py`、`/api/assets`、`assets-update` / `assets-doctor` 和 `/assets.html`，覆盖科创50（000688）、创业板50（399673）、华安黄金ETF（518880）。
 - 对象分类和价格单位、来源字段、行情历史保存在独立 `asset_prices.sqlite3`；不引入未核验PE/PB，不把黄金ETF场内价与净值或Au99.99拼接。
