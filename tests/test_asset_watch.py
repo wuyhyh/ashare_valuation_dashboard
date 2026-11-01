@@ -147,3 +147,34 @@ def test_get_assets_api_returns_no_demo_for_uninitialized_db():
                 assert len(overview["assets"])==3
             finally:
                 server.shutdown();server.server_close();t.join(timeout=3)
+
+
+def test_price_quality_reports_stale_feeds_and_extreme_unadjusted_jumps():
+    rows = [
+        {"date": "2026-08-03", "close": 2.0},
+        {"date": "2026-10-30", "close": 4.0},
+    ]
+    quality = asset_watch._price_quality(rows, asof=date(2026, 11, 15))
+    assert quality["age_days"] == 16
+    assert quality["max_gap_days"] > 20
+    assert quality["large_daily_jumps"][0]["date"] == "2026-10-30"
+    assert len(quality["warnings"]) == 3
+
+
+def test_price_quality_warnings_do_not_mislabel_weekend_as_stale():
+    rows = [{"date": "2026-10-29", "close": 100.0},
+            {"date": "2026-10-30", "close": 101.0}]
+    quality = asset_watch._price_quality(rows, asof=date(2026, 11, 1))
+    assert quality["age_days"] == 2
+    assert not quality["warnings"]
+
+
+def test_price_quality_is_exposed_by_asset_report():
+    with tempfile.TemporaryDirectory() as directory:
+        db = Path(directory) / "assets.sqlite3"
+        asset_watch.update_history("518880", db_path=db,
+            fetcher=lambda name: records(name))
+        snapshot = asset_watch.report("518880", db)
+        assert "quality" in snapshot
+        assert isinstance(snapshot["quality"]["warnings"], list)
+        assert snapshot["quality"]["max_gap_days"] >= 1
