@@ -113,7 +113,7 @@ def _choose_samples(rows: list[dict]) -> list[dict]:
 
 def verify_close(
     db_path: str | Path, *, capture_id: str | None = None,
-    reference_provider: str = "sina", fetcher=None,
+    reference_provider: str = "sina", fetcher=None, dry_run: bool = False,
 ) -> dict:
     """Verify an existing spot capture; commit evidence only after 20/20 passes.
 
@@ -205,6 +205,22 @@ def verify_close(
         "sample_audit": matches,
         "verified_at_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if dry_run:
+        return {
+            "capture_id": capture["capture_id"], "trading_date": day,
+            "reference_source": evidence["reference_source"],
+            "matched_samples": len(matches),
+            "max_relative_diff": evidence["max_relative_diff"],
+            "dry_run": True,
+            "written": False,
+            "warning": "核验已计算但未写入；正式收盘日状态仍未激活",
+        }
+    # Back up the *complete* SQLite database through its backup API, not a
+    # raw copy of a possibly live WAL-mode file.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    backup = path.with_name(path.name + ".backup-before-close-verification-" + stamp)
+    with closing(sqlite3.connect(path)) as original, closing(sqlite3.connect(backup)) as target:
+        original.backup(target)
     # Transactional re-read prevents replacing a capture changed while the
     # independent network requests were in flight.
     with closing(sqlite3.connect(path)) as db:
@@ -229,5 +245,6 @@ def verify_close(
         "capture_id": capture["capture_id"],
         "trading_date": day, "reference_source": evidence["reference_source"],
         "matched_samples": len(matches), "max_relative_diff": evidence["max_relative_diff"],
+        "dry_run": False, "written": True, "backup": str(backup),
         "warning": "仅对已采集快照的沪深四板块进行20支独立收盘日线抽样核验；北交所未核验，不可进入BSE/ALL_A历史",
     }
