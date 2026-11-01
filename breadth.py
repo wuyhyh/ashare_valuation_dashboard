@@ -11,6 +11,8 @@ from contextlib import closing
 import json
 import math
 from pathlib import Path
+import multiprocessing
+import queue
 import re
 import sqlite3
 from statistics import median
@@ -272,15 +274,64 @@ def latest_report(db_path: str | Path = DEFAULT_DB) -> dict:
     }
 
 
-def fetch_spot_em():
-    """Fetch explicitly, on a user command only; never on import or page view."""
-    import akshare as ak
-    frame = ak.stock_zh_a_spot_em()
-    if frame is None or frame.empty:
+def _spot_worker(result_queue) -> None:
+    try:
+        import akshare as ak
+        frame = ak.stock_zh_a_spot_em()
+        result_queue.put({
+            "ok": True,
+            "version": str(getattr(ak, "__version__", "unknown")),
+            "columns": [] if frame is None else list(frame.columns),
+            "records": [] if frame is None else frame.to_dict(orient="records"),
+        })
+    except Exception as exc:
+        result_queue.put({"ok": False, "error": type(exc).__name__ + ": " + str(exc)})
+
+
+def fetch_spot_em(*, timeout_seconds: int = 90) -> tuple[list[dict], str]:
+    """Fetch with a bounded worker; drain the queue before joining the process."""
+    if timeout_seconds <= 0:
+        raise BreadthError("行情请求超时必须大于零")
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(target=_spot_worker, args=(result_queue,), daemon=True)
+    process.start()
+    try:
+        try:
+            payload = result_queue.get(timeout=timeout_seconds)
+        except queue.Empty as exc:
+            raise BreadthError(f"沪深京行情抓取超时或子进程退出（{timeout_seconds}秒）") from exc
+    finally:
+        process.join(timeout=3)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+        result_queue.close()
+    if not payload.get("ok"):
+        raise BreadthError("行情抓取失败: " + str(payload.get("error", "未知错误")))
+    if not set(REQUIRED_COLUMNS).issubset(payload.get("columns") or []):
+        raise BreadthError("AKShare沪深京A股快照关键字段发生变化，拒绝保存")
+    records = payload.get("records") or []
+    if not records:
         raise BreadthError("AKShare沪深京A股快照为空")
-    if not set(REQUIRED_COLUMNS).issubset(frame.columns):
-        raise BreadthError("AKShare沪深京A股快照关键字段发生变化")
-    return frame.to_dict(orient="records"), str(getattr(ak, "__version__", "unknown"))
+    return records, str(payload.get("version") or "unknown")
+
+
+def validate_against_previous(capture: dict, db_path: str | Path = DEFAULT_DB) -> None:
+    """Reject a suspiciously shortened snapshot from the same data provider."""
+    if not Path(db_path).exists():
+        return
+    previous = recent_captures(db_path, limit=1)
+    if not previous or previous[0]["source_interface"] != capture["source_interface"]:
+        return
+    last_quality = json.loads(previous[0]["quality_json"])
+    previous_count = int(last_quality.get("identified_mainboard") or 0)
+    new_count = int(capture["quality"].get("identified_mainboard") or 0)
+    if previous_count >= 1000 and new_count < previous_count * .8:
+        raise BreadthError(
+            f"本次主板候选仅 {new_count} 条，上次同源为 {previous_count} 条，"
+            "可能行情分页截断或接口限流；已保留旧快照"
+        )
 
 
 def update_from_akshare(db_path: str | Path = DEFAULT_DB) -> dict:
@@ -289,6 +340,7 @@ def update_from_akshare(db_path: str | Path = DEFAULT_DB) -> dict:
         records, source_name="东方财富 / AKShare", source_interface="ak.stock_zh_a_spot_em",
         version=version
     )
+    validate_against_previous(capture, db_path)
     persist_capture(capture, db_path)
     return {"capture_id": capture["capture_id"], "captured_at_utc": capture["captured_at_utc"],
             "quality": capture["quality"], "summary": summarize(capture["quotes"]),
