@@ -124,4 +124,4 @@
 - [x] 增加 `302132` 创业板、`689009` CDR、伪造 `688999` 名录外报价及 SQLite 不落库测试。
 - [x] 本地重跑 `108` 项 pytest、`40` 项 unittest、Node、模拟与真实 SQLite Playwright，桌面及390px均通过。
 - [x] 推送修复 `0f6c1bb` 与测试修正 `3b3cab4`；GitHub Actions run `#41284932379` 的测试与浏览器作业均通过。
-- [ ] 回复 PR 审查记录，等待 ChatGPT 最终审查。
+- [x] 已在 PR #10 回复真实复验、完整回归、修复提交与 Actions 结果；继续保持 Draft，等待 ChatGPT 最终审查。
