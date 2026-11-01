@@ -64,17 +64,38 @@ def fixture():
 def main():
     ARTIFACTS.mkdir(exist_ok=True)
     errors = []
-    state = {"empty": True}
+    state = {"empty": True, "verified": False}
 
     def intercept(route):
         payload = {"available": False, "message": "尚未采集真实市场宽度快照"} if state["empty"] else fixture()
         route.fulfill(status=200, content_type="application/json", body=json.dumps(payload, ensure_ascii=False))
+
+    def intercept_trend(route):
+        url = route.request.url
+        # TEST FIXTURE ONLY: this does not verify any real market close.
+        if not state["verified"]:
+            payload = {
+                "available": False, "point_count": 0, "observations": [],
+                "message": "测试：尚无至少两个经过独立核验的交易日",
+            }
+        else:
+            payload = {
+                "available": True, "point_count": 2,
+                "observations": [
+                    {"trading_date": "2026-10-28", "advance_ratio": .30, "traded_count": 5000},
+                    {"trading_date": "2026-10-29", "advance_ratio": .60, "traded_count": 5000},
+                ],
+                "message": "TEST FIXTURE ONLY - 模拟有效证据，非真实历史宽度",
+            }
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps(payload, ensure_ascii=False))
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("**/api/breadth", intercept)
+        page.route("**/api/breadth-trend?*", intercept_trend)
         page.goto(BASE_URL + "/breadth.html", wait_until="networkidle")
         assert page.locator("#breadth-empty").is_visible()
         state["empty"] = False
@@ -83,6 +104,15 @@ def main():
         assert page.locator("#breadth-exchange").input_value() == "SH_SZ_ALL"
         assert page.locator("#b-identified").inner_text() == "8"
         assert "未验证" in page.locator("#breadth-date-trust").inner_text()
+        assert page.locator("#breadth-trend-empty").is_visible()
+        assert not page.locator("#breadth-trend-chart").is_visible()
+        state["verified"] = True
+        page.locator("#breadth-reload").click()
+        page.locator("#breadth-trend-chart").wait_for(state="visible")
+        assert page.locator("#breadth-trend-count").inner_text() == "有效交易日：2"
+        assert page.locator("#breadth-trend-start").inner_text() == "2026-10-28"
+        assert page.locator("#breadth-trend-svg path").count() == 1
+
         for scope, expected in (("MAIN_ALL", "4"), ("CHINEXT", "2"), ("STAR", "2"), ("BSE", "1"), ("ALL_A", "9")):
             page.locator("#breadth-exchange").select_option(scope)
             assert page.locator("#b-identified").inner_text() == expected
