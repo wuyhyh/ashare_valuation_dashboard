@@ -9,6 +9,74 @@ const scopeBoards={
   ALL_A:["SH_MAIN","SZ_MAIN","CHINEXT","STAR","BSE"]
 };
 let payload=null;
+let trendSequence=0;
+const SVG_NS="http://www.w3.org/2000/svg";
+function svgTag(name,attrs,text){
+  const node=document.createElementNS(SVG_NS,name);
+  for(const [key,value] of Object.entries(attrs||{}))node.setAttribute(key,String(value));
+  if(text!==undefined)node.textContent=text;
+  return node;
+}
+function drawTrend(points){
+  const svg=elem("breadth-trend-svg");
+  svg.replaceChildren();
+  const x=i=>50+i/(points.length-1)*796;
+  const y=value=>205-Math.max(0,Math.min(1,value))*176;
+  for(const value of [0,0.5,1]){
+    const yy=y(value);
+    svg.append(svgTag("line",{x1:50,x2:846,y1:yy,y2:yy,stroke:"#dce4ef","stroke-dasharray":"4 6"}));
+    svg.append(svgTag("text",{x:40,y:yy+4,"text-anchor":"end",fill:"#7588a2","font-size":12},Math.round(value*100)+"%"));
+  }
+  let segment=[];
+  const flush=()=>{
+    if(segment.length>=2){
+      svg.append(svgTag("path",{d:segment.join(" "),fill:"none",stroke:"#397ce0","stroke-width":3,"stroke-linejoin":"round","stroke-linecap":"round"}));
+    }
+    segment=[];
+  };
+  points.forEach((point,i)=>{
+    if(i && (Date.parse(point.trading_date+"T00:00:00Z")-Date.parse(points[i-1].trading_date+"T00:00:00Z"))>7*86400000)flush();
+    const xx=x(i),yy=y(point.advance_ratio);
+    segment.push((segment.length?"L":"M")+xx.toFixed(1)+" "+yy.toFixed(1));
+  });
+  flush();
+  points.forEach((point,i)=>{
+    const dot=svgTag("circle",{cx:x(i),cy:y(point.advance_ratio),r:3,fill:"#397ce0"});
+    dot.append(svgTag("title",{},point.trading_date+" · 上涨 "+(point.advance_ratio*100).toFixed(1)+"% · 成交 "+point.traded_count+"只"));
+    svg.append(dot);
+  });
+  elem("breadth-trend-start").textContent=points[0].trading_date;
+  elem("breadth-trend-end").textContent=points[points.length-1].trading_date;
+}
+async function loadTrend(){
+  const request=++trendSequence;
+  const scope=elem("breadth-exchange").value;
+  const exclude=elem("breadth-no-st").checked?"1":"0";
+  const empty=elem("breadth-trend-empty"),chart=elem("breadth-trend-chart");
+  const count=elem("breadth-trend-count"),info=elem("breadth-trend-info");
+  chart.hidden=true;empty.hidden=false;empty.textContent="正在检查经过验证的本地历史记录…";
+  try{
+    const query=new URLSearchParams({scope,exclude_st:exclude,limit:"90"});
+    const response=await fetch("/api/breadth-trend?"+query,{cache:"no-store"});
+    if(!response.ok)throw new Error("HTTP "+response.status);
+    const data=await response.json();
+    if(request!==trendSequence)return;
+    count.textContent="有效交易日："+(data.point_count||0);
+    info.textContent=data.message||"未提供经过核验的历史数据。";
+    if(data.available && Array.isArray(data.observations) && data.observations.length>=2){
+      drawTrend(data.observations);
+      chart.hidden=false;empty.hidden=true;
+    }else{
+      empty.textContent=data.message||"没有足够的真实核验交易日，不显示趋势。";
+    }
+  }catch(error){
+    if(request!==trendSequence)return;
+    count.textContent="有效交易日：—";
+    empty.textContent="历史数据读取失败："+error.message;
+    info.textContent="读取失败不会启用演示或伪造历史曲线。";
+  }
+}
+
 
 function available(scope){return (payload?.available_scopes||[]).includes(scope);}
 function group(scope){
@@ -87,11 +155,11 @@ async function reload(){
   try{
     const response=await fetch("/api/breadth",{cache:"no-store"});
     if(!response.ok)throw new Error("HTTP "+response.status);
-    payload=await response.json();render();
+    payload=await response.json();render();await loadTrend();
   }catch(error){payload={available:false,message:"读取真实快照失败："+error.message};render();}
 }
-elem("breadth-exchange").addEventListener("change",render);
-elem("breadth-no-st").addEventListener("change",render);
+elem("breadth-exchange").addEventListener("change",()=>{render();loadTrend();});
+elem("breadth-no-st").addEventListener("change",()=>{render();loadTrend();});
 elem("breadth-reload").addEventListener("click",reload);
-for(const button of document.querySelectorAll("#breadth-board-grid button"))button.addEventListener("click",()=>selectScope(button.dataset.scope));
+for(const button of document.querySelectorAll("#breadth-board-grid button"))button.addEventListener("click",()=>{selectScope(button.dataset.scope);loadTrend();});
 reload();
