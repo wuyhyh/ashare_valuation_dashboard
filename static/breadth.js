@@ -128,7 +128,16 @@ function render(){
   warning.hidden=!payload.scope_warning;warning.textContent=payload.scope_warning||"";
   elem("breadth-captured").textContent="采集时间（北京时间） "+new Date(payload.capture.captured_at_utc).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai",hour12:false});
   elem("breadth-source").textContent=payload.capture.source_interface+" · "+payload.capture.source_version+" · "+payload.capture.coverage_scope;
-  elem("breadth-date-trust").textContent=payload.capture.trading_date_verified?"已核验交易日 "+payload.capture.trading_date:"交易日期尚未验证（非确认收盘）";
+  const evidence=payload.capture.quality?.close_verification;
+  const verifiedBoards=new Set(evidence?.checked_boards||[]);
+  const selectedBoards=scopeBoards[scope]||[];
+  const hasVerifiedClose=Boolean(payload.capture.trading_date_verified && evidence?.status==="passed"
+    && selectedBoards.length && selectedBoards.every(board=>verifiedBoards.has(board)));
+  elem("breadth-date-trust").textContent=hasVerifiedClose
+    ?"已核验收盘日 "+payload.capture.trading_date+"（独立抽样）"
+    :payload.capture.trading_date_verified
+      ?"仅部分板块经过收盘抽样核验；当前范围未全部核验"
+      :"交易日期尚未验证（非确认收盘）";
   elem("b-up").textContent=fmt(data.advances);
   elem("b-down").textContent=fmt(data.declines);
   elem("b-flat").textContent=fmt(data.unchanged);
