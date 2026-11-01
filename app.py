@@ -180,7 +180,7 @@ def _sqlite_backup_for_sync():
 
 MARKET_SYNC_START = {
     "000016": "20050101",
-    "000300": "20160101",
+    "000300": "20050408",
     "000905": "20070101",
     "000852": "20140101",
 }
@@ -276,10 +276,10 @@ def update_akshare(index_code, metric):
     return update_history(index_code, metric, db_path=DB)
 
 
-def update_market(index_code, start_date="20160101", end_date=None, provider_name="auto"):
+def update_market(index_code, start_date=None, end_date=None, provider_name="auto"):
     if index_code not in INDICES:
         raise ValueError("不支持的指数")
-    return update_index_history(index_code, db_path=DB, start_date=start_date, end_date=end_date, provider_name=provider_name)
+    return update_index_history(index_code, db_path=DB, start_date=start_date or MARKET_SYNC_START[index_code], end_date=end_date, provider_name=provider_name)
 
 
 def get_comparison_data(metric):
@@ -535,12 +535,12 @@ def main():
     diagnose.add_argument("--metric", choices=list(METRICS) + ["all"], default="all")
     update_market_parser = sub.add_parser("update-market", help="拉取指数自身的日线收盘点位（需akshare）")
     update_market_parser.add_argument("--index", choices=list(INDICES) + ["all"], default="000300")
-    update_market_parser.add_argument("--start", default="20160101")
+    update_market_parser.add_argument("--start", default=None, help="默认从对应指数的最早计划历史日期开始")
     update_market_parser.add_argument("--end", default=None)
     update_market_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="auto")
     diagnose_market = sub.add_parser("diagnose-market", help="联网诊断指数行情接口，不写入数据库")
     diagnose_market.add_argument("--index", choices=INDICES, default="000300")
-    diagnose_market.add_argument("--start", default="20160101")
+    diagnose_market.add_argument("--start", default=None, help="默认从对应指数的最早计划历史日期开始")
     diagnose_market.add_argument("--end", default=None)
     diagnose_market.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="auto")
     diagnose_market.add_argument("--cross-check", choices=PROVIDER_CHOICES, default=None)
@@ -625,7 +625,7 @@ def main():
     elif args.command == "diagnose-market":
         try:
             result = diagnose_index_source(
-                args.index, start_date=args.start, end_date=args.end,
+                args.index, start_date=args.start or MARKET_SYNC_START[args.index], end_date=args.end,
                 provider_name=args.provider, cross_check_provider=args.cross_check,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
