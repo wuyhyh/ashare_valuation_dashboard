@@ -93,7 +93,7 @@ def test_independent_evidence_and_same_source_are_required_with_deduplication():
         assert result["available"] is False
         assert result["point_count"] == 1
         # Newest verified cohort is other-provider, no cross-provider stitching.
-        breadth.persist_capture(capture("2026-10-30", source="source-TX"), db)
+        breadth.persist_capture(capture("2026-10-30", hour=17, source="source-TX"), db)
         result = breadth_trend(db, scope="SH_SZ_ALL")
         assert result["available"] is True
         assert result["point_count"] == 3
