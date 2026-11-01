@@ -19,6 +19,7 @@ import pytest
 import app
 import breadth
 from breadth_history import breadth_trend, EVIDENCE_METHOD, HISTORY_CALCULATION_VERSION
+from data_sources.history import import_history
 
 
 def rows():
@@ -66,6 +67,15 @@ def capture(day, *, hour=16, source="source-TX", verified=True, evidence=True,
             "checked_boards": ["SH_MAIN", "SZ_MAIN", "CHINEXT", "STAR"],
         }
     return result
+
+
+def fixture_calendar(db, days):
+    """TEST FIXTURE ONLY: supplied dates are simulated sessions, not a CN exchange calendar."""
+    import_history(
+        "000300", "index_close",
+        [(day, 4000 + index) for index, day in enumerate(days)],
+        "TEST FIXTURE ONLY simulated trading-session calendar", db_path=db,
+    )
 
 
 def test_unverified_snapshots_cannot_be_a_trend_even_when_captured_after_close():
@@ -140,10 +150,12 @@ def test_invalid_scope_and_limit_are_rejected_and_legacy_cannot_fake_full_market
 def test_history_endpoint_is_read_only_and_rejects_invalid_query():
     with tempfile.TemporaryDirectory() as temp:
         db = Path(temp) / "breadth.sqlite3"
+        calendar_db = Path(temp) / "valuation.sqlite3"
         breadth.persist_capture(capture("2026-10-28"), db)
         breadth.persist_capture(capture("2026-10-29"), db)
+        fixture_calendar(calendar_db, ["2026-10-28", "2026-10-29"])
         before = db.stat().st_size
-        with patch.object(app, "BREADTH_DB", db):
+        with patch.object(app, "BREADTH_DB", db), patch.object(app, "DB", calendar_db):
             server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
             worker = threading.Thread(target=server.serve_forever, daemon=True)
             worker.start()
@@ -164,18 +176,22 @@ def test_history_endpoint_is_read_only_and_rejects_invalid_query():
         assert db.stat().st_size == before
 
 
-def test_verified_session_moving_averages_require_enough_dense_real_dates():
+def test_moving_averages_require_consecutive_simulated_trading_sessions():
     with tempfile.TemporaryDirectory() as temp:
         db = Path(temp) / "breadth.sqlite3"
+        calendar_db = Path(temp) / "valuation.sqlite3"
         days = []
         cursor = date(2026, 9, 21)
         while len(days) < 20:
+            # TEST FIXTURE ONLY: Monday-Friday is a simulated session index,
+            # not a claim about the actual China exchange holiday calendar.
             if cursor.weekday() < 5:
                 days.append(cursor.isoformat())
             cursor += timedelta(days=1)
+        fixture_calendar(calendar_db, days)
         for day in days:
             breadth.persist_capture(capture(day), db)
-        result = breadth_trend(db, limit=30)
+        result = breadth_trend(db, limit=30, calendar_db_path=calendar_db)
         assert result["available"] is True and result["point_count"] == 20
         assert result["observations"][3]["advance_ratio_ma5"] is None
         assert result["observations"][4]["advance_ratio_ma5"] == pytest.approx(.4)
@@ -183,3 +199,47 @@ def test_verified_session_moving_averages_require_enough_dense_real_dates():
         assert result["observations"][19]["advance_ratio_ma20"] == pytest.approx(.4)
         assert result["moving_averages"]["ma5_ready"] is True
         assert result["moving_averages"]["ma20_ready"] is True
+        assert result["moving_averages"]["calendar_available"] is True
+
+
+def test_weekly_sparse_observations_never_become_five_or_twenty_day_averages():
+    with tempfile.TemporaryDirectory() as temp:
+        db = Path(temp) / "breadth.sqlite3"
+        calendar_db = Path(temp) / "valuation.sqlite3"
+        sessions = []
+        cursor = date(2026, 1, 5)
+        while len(sessions) < 100:
+            if cursor.weekday() < 5:
+                sessions.append(cursor.isoformat())
+            cursor += timedelta(days=1)
+        fixture_calendar(calendar_db, sessions)
+        weekly = sessions[::5][:20]
+        for day in weekly:
+            breadth.persist_capture(capture(day), db)
+        result = breadth_trend(db, limit=30, calendar_db_path=calendar_db)
+        assert result["point_count"] == 20
+        assert result["moving_averages"]["ma5_ready"] is False
+        assert result["moving_averages"]["ma20_ready"] is False
+        audit = result["observations"][-1]["advance_ratio_ma20_continuity"]
+        assert audit["consecutive"] is False
+        assert audit["session_span"] == 96
+        assert audit["missing_session_count"] == 76
+
+
+def test_missing_simulated_session_blocks_only_windows_that_cross_the_gap():
+    with tempfile.TemporaryDirectory() as temp:
+        db = Path(temp) / "breadth.sqlite3"
+        calendar_db = Path(temp) / "valuation.sqlite3"
+        sessions = []
+        cursor = date(2026, 9, 21)
+        while len(sessions) < 10:
+            if cursor.weekday() < 5:
+                sessions.append(cursor.isoformat())
+            cursor += timedelta(days=1)
+        fixture_calendar(calendar_db, sessions)
+        observed = sessions[:2] + sessions[3:]
+        for day in observed:
+            breadth.persist_capture(capture(day), db)
+        result = breadth_trend(db, limit=20, calendar_db_path=calendar_db)
+        assert result["observations"][4]["advance_ratio_ma5"] is None
+        assert result["observations"][-1]["advance_ratio_ma5"] == pytest.approx(.4)

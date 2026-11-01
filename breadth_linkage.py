@@ -2,19 +2,17 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import date
 import math
 from pathlib import Path
 import sqlite3
 
-from breadth_history import LINKAGE_MAX_POINTS, breadth_linkage_history
+from breadth_history import LINKAGE_MAX_POINTS, breadth_linkage_history, session_continuity
 
 
 LINKED_INDICES = ("000300", "000905", "000852")
 VALUATION_METRICS = ("pe_ttm", "pb")
 MIN_DIVERGENCE_POINTS = 20
 MIN_VALUATION_POINTS = 12
-MAX_LINKAGE_GAP_DAYS = 7
 
 
 def _active_series(db_path: str | Path, index_code: str, metric: str) -> dict | None:
@@ -50,11 +48,6 @@ def _exact_pairs(breadth_by_date: dict[str, float], series: dict | None) -> list
         for row in series["rows"]
         if row["date"] in breadth_by_date and float(row["value"]) > 0
     ]
-
-
-def _dense(dates: list[str]) -> bool:
-    parsed = [date.fromisoformat(value) for value in dates]
-    return all((right - left).days <= MAX_LINKAGE_GAP_DAYS for left, right in zip(parsed, parsed[1:]))
 
 
 def _correlation(left: list[float], right: list[float]) -> float | None:
@@ -161,9 +154,17 @@ def breadth_linkage(
             "calculation": "上涨比例百分点变化 − 指数百分比收益；仅为不同指标的探索性差值",
         }
         window = index_pairs[-MIN_DIVERGENCE_POINTS:]
+        session_dates = (
+            [row["date"] for row in index_series["rows"]]
+            if index_series is not None and index_series.get("frequency") == "daily" else []
+        )
+        continuity = session_continuity([item[0] for item in window], session_dates)
+        divergence["session_continuity"] = continuity
         if index_series is not None and index_series.get("frequency") != "daily":
             divergence["message"] = "指数点位不是已识别的真实日频序列，拒绝计算背离"
-        elif len(window) == MIN_DIVERGENCE_POINTS and _dense([item[0] for item in window]):
+        elif len(window) == MIN_DIVERGENCE_POINTS and not continuity["consecutive"]:
+            divergence["message"] = "共同日期不是连续20个可信交易会话，拒绝把稀疏观察点称为20日联动"
+        elif len(window) == MIN_DIVERGENCE_POINTS:
             breadth_change = (window[-1][1] - window[0][1]) * 100
             index_return = (window[-1][2] / window[0][2] - 1) * 100
             divergence = {
@@ -174,6 +175,7 @@ def breadth_linkage(
                 "breadth_change_percentage_points": breadth_change,
                 "index_return_pct": index_return,
                 "divergence_percentage_points": breadth_change - index_return,
+                "session_continuity": continuity,
                 "calculation": "上涨比例百分点变化 − 指数百分比收益；仅为不同指标的探索性差值",
                 "message": "探索性同日差异，不是投资信号或因果结论",
             }
@@ -206,8 +208,10 @@ def breadth_linkage(
                 item["message"] = "至少需要12个连续自然月的严格同日估值样本"
             elif series is not None and series.get("frequency") == "daily" and (
                     len(pairs) < MIN_VALUATION_POINTS or
-                    not _dense([pair[0] for pair in pairs[-MIN_VALUATION_POINTS:]])):
-                item["message"] = "日频估值至少需要12个稠密严格同日样本"
+                    not session_continuity(
+                        [pair[0] for pair in pairs[-MIN_VALUATION_POINTS:]], session_dates,
+                    )["consecutive"]):
+                item["message"] = "日频估值至少需要12个连续可信交易会话的严格同日样本"
             elif len(pairs) >= MIN_VALUATION_POINTS:
                 correlation = _correlation(
                     [pair[1] for pair in pairs], [pair[2] for pair in pairs]

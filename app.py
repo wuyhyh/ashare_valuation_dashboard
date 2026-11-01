@@ -420,7 +420,10 @@ class Handler(BaseHTTPRequestHandler):
                 return response(self, 400, {"error": "exclude_st 只允许 0/1"})
             try:
                 limit = int(limit_value)
-                result = breadth_trend(BREADTH_DB, scope=scope, exclude_st=(st == "1"), limit=limit)
+                result = breadth_trend(
+                    BREADTH_DB, scope=scope, exclude_st=(st == "1"), limit=limit,
+                    calendar_db_path=DB,
+                )
             except (ValueError, OverflowError) as exc:
                 return response(self, 400, {"error": str(exc)})
             return response(self, 200, result)

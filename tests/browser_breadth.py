@@ -77,10 +77,14 @@ def main():
             payload = {
                 "available": False, "point_count": 0, "observations": [],
                 "message": "测试：尚无至少两个经过独立核验的交易日",
+                "moving_averages": {"calendar_available": True, "ma5_ready": False, "ma20_ready": False},
             }
         else:
             payload = {
                 "available": True, "point_count": 2,
+                "source_interface": "tests.fixture.breadth",
+                "coverage_scope": "sh_sz_all_a",
+                "moving_averages": {"calendar_available": True, "ma5_ready": False, "ma20_ready": False},
                 "observations": [
                     {"trading_date": "2026-10-28", "advance_ratio": .30, "traded_count": 5000},
                     {"trading_date": "2026-10-29", "advance_ratio": .60, "traded_count": 5000},
@@ -158,6 +162,8 @@ def main():
         assert "未验证" in page.locator("#breadth-date-trust").inner_text()
         assert page.locator("#breadth-trend-empty").is_visible()
         assert not page.locator("#breadth-trend-chart").is_visible()
+        assert "尚无至少两个经过独立核验" in page.locator("#breadth-history").inner_text()
+        assert "已核验" not in page.locator("#breadth-history").inner_text()
         assert "样本不足" in page.locator("#breadth-linkage-status").inner_text()
         assert "2 / 20" in page.locator("#breadth-linkage-results").inner_text()
         assert "至少需要12个连续自然月" in page.locator("#breadth-linkage-results").inner_text()
@@ -167,6 +173,10 @@ def main():
         assert page.locator("#breadth-trend-count").inner_text() == "有效交易日：2"
         assert page.locator("#breadth-trend-start").inner_text() == "2026-10-28"
         assert page.locator("#breadth-trend-svg path").count() == 1
+        history_text=page.locator("#breadth-history").inner_text()
+        assert "已核验2个交易日" in history_text
+        assert "tests.fixture.breadth" in history_text
+        assert "不能" not in history_text
         linkage_text=page.locator("#breadth-linkage-results").inner_text()
         assert "+3.50 个百分点" in linkage_text
         assert "上涨比例变化 +8.50 个百分点 − 指数收益 +5.00%" in linkage_text

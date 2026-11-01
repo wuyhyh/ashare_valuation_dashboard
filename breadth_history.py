@@ -21,7 +21,59 @@ EVIDENCE_METHOD = "independent_stock_daily_close_crosscheck"
 MAX_POINTS = 180
 LINKAGE_MAX_POINTS = 420
 MOVING_AVERAGE_WINDOWS = (5, 20)
-MAX_ROLLING_GAP_DAYS = 7
+
+
+def active_daily_sessions(db_path: str | Path, index_code: str = "000300") -> list[str]:
+    """Read the active daily index-date sequence as the trading-session calendar."""
+    path = Path(db_path)
+    if not path.is_file():
+        return []
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+        connection.row_factory = sqlite3.Row
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        if not {"series", "active_series", "observations"}.issubset(tables):
+            return []
+        series = connection.execute(
+            "SELECT s.series_id,s.frequency FROM active_series a "
+            "JOIN series s ON s.series_id=a.series_id "
+            "WHERE a.index_code=? AND a.metric='index_close'",
+            (index_code,),
+        ).fetchone()
+        if series is None or series["frequency"] != "daily":
+            return []
+        return [row[0] for row in connection.execute(
+            "SELECT date FROM observations WHERE series_id=? ORDER BY date",
+            (series["series_id"],),
+        )]
+
+
+def session_continuity(dates: list[str], sessions: list[str]) -> dict:
+    """Audit whether observations occupy consecutive trusted trading sessions."""
+    result = {
+        "consecutive": False, "observation_count": len(dates),
+        "session_span": None, "missing_session_count": None,
+        "calendar_day_span": None,
+    }
+    if not dates or len(set(dates)) != len(dates) or not sessions:
+        return result
+    positions = {day: index for index, day in enumerate(sessions)}
+    if any(day not in positions for day in dates):
+        return result
+    indexes = [positions[day] for day in dates]
+    if indexes != sorted(indexes):
+        return result
+    session_span = indexes[-1] - indexes[0] + 1
+    result.update({
+        "consecutive": session_span == len(dates),
+        "session_span": session_span,
+        "missing_session_count": session_span - len(dates),
+        "calendar_day_span": (
+            date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])
+        ).days + 1,
+    })
+    return result
 
 
 def _eligible(capture: dict, scope: str) -> bool:
@@ -172,7 +224,8 @@ def breadth_linkage_history(
 
 
 def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
-                  exclude_st: bool = False, limit: int = 90) -> dict:
+                  exclude_st: bool = False, limit: int = 90,
+                  calendar_db_path: str | Path | None = None) -> dict:
     """Read a chart-limited comparable cohort, one capture per trade day."""
     _validate_query(scope, exclude_st)
     if type(limit) is not int or not 2 <= limit <= MAX_POINTS:
@@ -183,26 +236,33 @@ def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
         "source_interface": None, "coverage_scope": None,
         "calculation_version": HISTORY_CALCULATION_VERSION,
         "moving_averages": {
-            "windows": list(MOVING_AVERAGE_WINDOWS), "definition": "verified_session_simple_mean",
-            "max_gap_days": MAX_ROLLING_GAP_DAYS, "ma5_ready": False, "ma20_ready": False,
+            "windows": list(MOVING_AVERAGE_WINDOWS),
+            "definition": "consecutive_verified_trading_session_simple_mean",
+            "calendar_index": "000300 index_close active daily",
+            "calendar_available": False, "ma5_ready": False, "ma20_ready": False,
         },
         "message": "尚无至少两个具有独立收盘价核验证据的可比交易日；当前行情快照不能绘制历史趋势",
     }
     points, cohort = _load_verified_points(
         db_path, scope=scope, exclude_st=exclude_st, limit=limit,
     )
+    sessions = active_daily_sessions(calendar_db_path) if calendar_db_path else []
     for index, point in enumerate(points):
         for window in MOVING_AVERAGE_WINDOWS:
             field = f"advance_ratio_ma{window}"
+            audit_field = f"advance_ratio_ma{window}_continuity"
             if index + 1 < window:
                 point[field] = None
+                point[audit_field] = None
                 continue
             sample = points[index + 1 - window:index + 1]
-            dates = [date.fromisoformat(item["trading_date"]) for item in sample]
-            gaps = [(right - left).days for left, right in zip(dates, dates[1:])]
+            audit = session_continuity(
+                [item["trading_date"] for item in sample], sessions,
+            )
+            point[audit_field] = audit
             point[field] = (
                 sum(item["advance_ratio"] for item in sample) / window
-                if all(gap <= MAX_ROLLING_GAP_DAYS for gap in gaps) else None
+                if audit["consecutive"] else None
             )
     result.update({
         "observations": points,
@@ -212,6 +272,7 @@ def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
         "coverage_scope": None if cohort is None else cohort[1],
     })
     result["moving_averages"].update({
+        "calendar_available": bool(sessions),
         "ma5_ready": any(point["advance_ratio_ma5"] is not None for point in points),
         "ma20_ready": any(point["advance_ratio_ma20"] is not None for point in points),
     })

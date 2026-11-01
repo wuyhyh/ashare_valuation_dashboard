@@ -82,12 +82,14 @@ async function loadTrend(){
     if(request!==trendSequence)return;
     count.textContent="有效交易日："+(data.point_count||0);
     const averages=data.moving_averages||{};
-    const averageNote=averages.ma20_ready?" · 已显示5/20个核验交易日均线":averages.ma5_ready?" · 已显示5个核验交易日均线；20日样本不足":"";
+    const averageNote=averages.ma20_ready?" · 已显示连续5/20个核验交易日均线":averages.ma5_ready?" · 已显示连续5个核验交易日均线；20日样本不足":data.available&&!averages.calendar_available?" · 缺少可信日频交易日历，不计算均线":"";
     info.textContent=(data.message||"未提供经过核验的历史数据。")+averageNote;
     if(data.available && Array.isArray(data.observations) && data.observations.length>=2){
+      elem("breadth-history").textContent="历史宽度：已核验"+data.point_count+"个交易日 · 来源 "+(data.source_interface||"未知")+" · 范围 "+(data.coverage_scope||scope);
       drawTrend(data.observations);
       chart.hidden=false;empty.hidden=true;
     }else{
+      elem("breadth-history").textContent="历史宽度："+(data.message||"没有足够的真实核验交易日，不显示趋势。");
       empty.textContent=data.message||"没有足够的真实核验交易日，不显示趋势。";
     }
   }catch(error){
@@ -95,6 +97,7 @@ async function loadTrend(){
     count.textContent="有效交易日：—";
     empty.textContent="历史数据读取失败："+error.message;
     info.textContent="读取失败不会启用演示或伪造历史曲线。";
+    elem("breadth-history").textContent="历史宽度：读取失败，不会启用演示或伪造历史。";
   }
 }
 
@@ -130,6 +133,8 @@ async function loadLinkage(){
         appendText(divergenceBlock,"strong","linkage-unavailable","不可用");
         appendText(divergenceBlock,"p","",divergence.message||"指数同日样本不足");
         appendText(divergenceBlock,"small","",(divergence.common_dates||0)+" / "+(divergence.required_common_dates||20)+" 个所需共同日");
+        const continuity=divergence.session_continuity||{};
+        if(continuity.session_span!=null)appendText(divergenceBlock,"small","","实际跨越 "+continuity.session_span+" 个交易会话 · 缺失 "+continuity.missing_session_count+" 个会话");
       }
       appendText(divergenceBlock,"small","","指数来源 "+(item.index_close_source||"未采集")+" · "+(item.index_close_frequency||"频率未知")+"；宽度来源 "+(data.breadth_source_interface||"尚无合格历史"));
       appendText(divergenceBlock,"small","linkage-method",divergence.calculation||"上涨比例百分点变化与指数百分比收益的探索性差值，不是预测信号");

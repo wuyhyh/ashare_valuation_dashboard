@@ -109,6 +109,54 @@ def test_dense_exact_dates_enable_exploratory_divergence_only(monkeypatch):
         assert valuation_db.read_bytes() == before
 
 
+def test_weekly_breadth_cannot_masquerade_as_twenty_consecutive_sessions(monkeypatch):
+    with tempfile.TemporaryDirectory() as folder:
+        valuation_db = Path(folder) / "valuation.sqlite3"
+        # TEST FIXTURE ONLY: weekdays are a simulated session index, not the
+        # actual China exchange calendar.
+        sessions = weekdays(100, start=date(2026, 1, 5))
+        weekly_breadth = sessions[::5][:20]
+        import_history(
+            "000300", "index_close",
+            [(day, 4000 + index) for index, day in enumerate(sessions)],
+            "TEST FIXTURE ONLY simulated daily index", db_path=valuation_db,
+        )
+        monkeypatch.setattr(
+            module, "breadth_linkage_history",
+            lambda *_a, **_k: mocked_trend(weekly_breadth),
+        )
+        divergence = module.breadth_linkage(
+            Path(folder) / "ignored.sqlite3", valuation_db,
+        )["indices"]["000300"]["divergence"]
+        assert divergence["common_dates"] == 20
+        assert divergence["available"] is False
+        assert "不是连续20个可信交易会话" in divergence["message"]
+        assert divergence["session_continuity"]["session_span"] == 96
+        assert divergence["session_continuity"]["missing_session_count"] == 76
+
+
+def test_one_missing_session_rejects_twenty_day_divergence(monkeypatch):
+    with tempfile.TemporaryDirectory() as folder:
+        valuation_db = Path(folder) / "valuation.sqlite3"
+        sessions = weekdays(21, start=date(2026, 9, 1))
+        observed = sessions[:10] + sessions[11:]
+        import_history(
+            "000300", "index_close",
+            [(day, 4000 + index) for index, day in enumerate(sessions)],
+            "TEST FIXTURE ONLY simulated daily index", db_path=valuation_db,
+        )
+        monkeypatch.setattr(
+            module, "breadth_linkage_history",
+            lambda *_a, **_k: mocked_trend(observed),
+        )
+        divergence = module.breadth_linkage(
+            Path(folder) / "ignored.sqlite3", valuation_db,
+        )["indices"]["000300"]["divergence"]
+        assert divergence["available"] is False
+        assert divergence["session_continuity"]["session_span"] == 21
+        assert divergence["session_continuity"]["missing_session_count"] == 1
+
+
 def test_monthly_valuation_uses_only_exact_common_dates_without_fill(monkeypatch):
     with tempfile.TemporaryDirectory() as folder:
         valuation_db = Path(folder) / "valuation.sqlite3"
