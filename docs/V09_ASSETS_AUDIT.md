@@ -43,3 +43,8 @@ python app.py
 - 上海证券交易所上证科创板50成份指数代码 000688。
 - 国证指数网创业板50代码 399673。
 - AKShare 公共接口文档 `stock_zh_index_daily` 与 `fund_etf_hist_em`。
+
+## 价格质量提醒与浏览器自动化
+- `asset_watch.py` 报告 `quality.age_days`、`max_gap_days` 和单次相邻样本30%以上跳变的日期。过期超过10天、相邻数据缺口超过20日和极端跳变会在 `/assets.html` 显示警告。
+- 警告只表示**可能存在数据缺失或ETF份额调整等问题**，并不自动识别拆分、分红或停牌；对于未复权ETF价格，历史收益仍不是可实现的总回报。
+- GitHub Actions 新增 `browser-smoke`，自动在 Chromium 中验收原估值、市场宽度、跨资产三页；全部使用离线模拟 API。新加入的页面和数据质量测试不构成真实 AKShare 验证。
