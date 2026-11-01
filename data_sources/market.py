@@ -15,6 +15,8 @@ from .storage import record_update_run, utc_now
 
 LOGGER = logging.getLogger("valuation.market")
 INDEX_NAMES = {"000300": "沪深300", "000905": "中证500", "000852": "中证1000", "000016": "上证50"}
+# Per-index historical retrieval start, shared by CLI, sync and direct data-source calls.
+MARKET_HISTORY_START = {"000016": "20050101", "000300": "20050408", "000905": "20070101", "000852": "20140101"}
 MARKET_METRIC = "index_close"
 METHODOLOGY = "指数本身的不复权日线收盘点位；不是 ETF 价格，不补齐非交易日，不进行前向填充或插值。"
 PROVIDER_ORDER = ("sina", "tencent", "eastmoney_daily", "eastmoney_legacy")
@@ -142,12 +144,13 @@ def _normalize_payload(index_code: str, provider_name: str, payload: dict, start
 
 
 def fetch_index_history(
-    index_code: str, *, start_date: str = "20160101", end_date: str | None = None,
+    index_code: str, *, start_date: str | None = None, end_date: str | None = None,
     timeout_seconds: int = 45, retries: int = 2, provider_name: str = "auto",
     provider: Callable[[str, str, str, int], dict] | None = None,
 ) -> dict:
     if index_code not in INDEX_NAMES:
         raise DataSourceError(f"不支持的指数代码: {index_code}")
+    start_date = start_date if start_date is not None else MARKET_HISTORY_START[index_code]
     if provider_name not in ("auto", *PROVIDER_CHOICES):
         raise DataSourceError(f"不支持的指数行情数据源: {provider_name}")
     end_date = end_date or date.today().strftime("%Y%m%d")
@@ -244,9 +247,10 @@ def _ensure_candidate_preserves_history(previous_rows: list[dict], quality: dict
 
 
 def update_index_history(
-    index_code: str, *, db_path: str | Path = DEFAULT_DB, start_date: str = "20160101",
+    index_code: str, *, db_path: str | Path = DEFAULT_DB, start_date: str | None = None,
     end_date: str | None = None, provider_name: str = "auto", fetcher: Callable[..., dict] | None = None,
 ) -> dict:
+    start_date = start_date if start_date is not None else MARKET_HISTORY_START[index_code]
     started_at = utc_now()
     try:
         previous_rows, previous_status = read_index_history(db_path, index_code)
@@ -304,9 +308,10 @@ def read_index_history(db_path: str | Path, index_code: str):
 
 
 def diagnose_index_source(
-    index_code: str, *, start_date: str = "20160101", end_date: str | None = None,
+    index_code: str, *, start_date: str | None = None, end_date: str | None = None,
     provider_name: str = "auto", cross_check_provider: str | None = None,
 ) -> dict:
+    start_date = start_date if start_date is not None else MARKET_HISTORY_START[index_code]
     fetched = fetch_index_history(index_code, start_date=start_date, end_date=end_date, retries=1, provider_name=provider_name)
     quality = validate_index_history(fetched["rows"])
     result = {
