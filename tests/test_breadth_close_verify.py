@@ -42,6 +42,26 @@ def fake_daily(codes, day, provider):
                      for code, _ in codes}}
 
 
+def test_dry_run_does_not_promote_or_mutate_and_success_creates_backup():
+    with tempfile.TemporaryDirectory() as folder:
+        db = Path(folder) / "capture.sqlite3"
+        candidate = make_capture()
+        breadth.persist_capture(candidate, db)
+        original = db.read_bytes()
+        result = verify_close(db, capture_id=candidate["capture_id"],
+                              fetcher=fake_daily, dry_run=True)
+        assert result["matched_samples"] == 20
+        assert result["dry_run"] is True and result["written"] is False
+        assert db.read_bytes() == original
+        assert not list(Path(folder).glob("*.backup-before-close-verification-*"))
+        promoted = verify_close(db, capture_id=candidate["capture_id"], fetcher=fake_daily)
+        assert promoted["written"] is True
+        backup = Path(promoted["backup"])
+        assert backup.is_file() and backup.stat().st_size > 0
+        with sqlite3.connect(backup) as connection:
+            assert connection.execute("SELECT trading_date_verified FROM breadth_captures").fetchone()[0] == 0
+
+
 def test_independently_checked_close_can_promote_only_hs_four_boards():
     with tempfile.TemporaryDirectory() as folder:
         db = Path(folder) / "capture.sqlite3"
