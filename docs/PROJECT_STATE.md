@@ -3,6 +3,12 @@
 - 对象分类和价格单位、来源字段、行情历史保存在独立 `asset_prices.sqlite3`；不引入未核验PE/PB，不把黄金ETF场内价与净值或Au99.99拼接。
 - 新增独立数据审计 `docs/V09_ASSETS_AUDIT.md` 与离线测试；真实联网与真实浏览器验收仍需在开发机执行，CI状态以最新PR提交为准。
 
+## v0.9 本轮增强（2026-11-01）
+- PR #7 已增加 GitHub Actions 的 Chromium Playwright 自动浏览器回归（估值旧页面、主板宽度、新增跨资产价格页）；首轮测试完成，最终结果须按最新 HEAD CI 检查。
+- 市场宽度采用90秒有限请求的子进程，先读大结果队列再回收；同源快照新样本小于上次80%时拒绝可疑截断（上次至少1000条）。
+- 跨资产增加价格滞后、长历史空缺及单样本异常跳变的质量提醒；未验证的ETF公司行动不可直接转成收益修正。
+- 仍未完成真实AKShare联网、股票池与官方证券列表交叉核对及ETF历史调整审计，因此保持Draft。
+
 ## v0.9 当前开发（非发布）
 - 开发分支：`feat/v09-market-breadth`，Issue #6，主分支仍以 v0.8 为稳定版。
 - 已提交：独立 `breadth.py` 实时股票快照标准化、主板初筛、ST筛选、涨跌/零成交统计、`breadth.sqlite3` 独立存储；`/api/breadth` 只读接口、`breadth-doctor` / `breadth-update` 命令和 `/breadth.html` 初版 UI。
