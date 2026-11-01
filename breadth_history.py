@@ -6,6 +6,7 @@ documented daily-close cross-check implementation (v0.11 Phase B).
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date, datetime, time
 import json
 from pathlib import Path
@@ -98,7 +99,7 @@ def breadth_trend(db_path: str | Path, *, scope: str = "SH_SZ_ALL",
     if not path.is_file():
         return result
     # URI mode=ro ensures this endpoint does not trigger schema migration.
-    with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         conn.row_factory = sqlite3.Row
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(breadth_captures)")}
         if not {"coverage_scope", "trading_date_verified", "trading_date", "quality_json"}.issubset(columns):
