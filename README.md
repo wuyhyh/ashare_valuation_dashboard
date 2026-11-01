@@ -279,3 +279,9 @@ DASHBOARD_URL=http://127.0.0.1:8766 python tests/browser_time_axis.py
 - `tests/browser_time_axis.py`：Playwright 真实交互验收与截图。
 
 本工具仅用于历史估值研究，不构成投资建议或交易指令。
+
+
+## v0.11 收盘核验候选命令（需在独立开发分支操作）
+在真实沪深交易日 15:30 后，先执行 `python app.py breadth-update --provider tencent`，再执行 `python app.py breadth-verify-close --reference sina`；核验失败不会把快照变成可信收盘日。可试 `--reference eastmoney`，但必须与原行情快照数据源不同。
+这套候选代码尚未完成真实联网实测。只有连续至少两个已成功验证的交易日、同源同口径的历史数据，市场宽度图表才会显示；已有周末快照不能回填为过去交易日。
+成功时仅验证沪深四板块各5支股票，北交所没有独立日线证据，BSE/ALL_A 历史口径保持不可用。
