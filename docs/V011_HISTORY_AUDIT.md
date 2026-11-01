@@ -67,4 +67,4 @@ python app.py breadth-doctor
 ## 6. 自动化测试与真实联网的区分
 - 单元测试覆盖：周末/收盘前拒绝、同源拒绝、空/错列/错日期/坏价格、前收盘、价格差、只读诊断、dry-run不写库、备份与事务升级、历史来源隔离、5/20均线门槛、严格同日联动。
 - Playwright 模拟响应只检查桌面与390px页面行为；真实 SQLite 浏览器测试验证当前空历史状态，不代表已经取得真实连续交易日。
-- 实现提交 `37e8d7a`；本机完整结果为 `133 passed, 24 subtests passed`、`42`项 unittest、Node日期轴/语法检查以及4个Playwright脚本通过。GitHub Actions 结果以 PR #13 最新检查为准。
+- 实现提交 `37e8d7a`；本机完整结果为 `133 passed, 24 subtests passed`、`42`项 unittest、Node日期轴/语法检查以及4个Playwright脚本通过。文档提交 `c0a3628` 的 GitHub Actions pull_request run `#41291845587` 与 push run `#41291842221` 均成功。
