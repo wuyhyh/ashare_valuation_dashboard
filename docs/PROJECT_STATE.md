@@ -13,6 +13,7 @@
 - 与上交所主板 A 股 `1,700` 只、深交所主板 `1,494` 只名录独立核对：代码覆盖 `100%`，缺失、多余和名称差异均为 `0`。
 - 本次周日快照无法从即时源独立证明真实报价交易日，依然不构造历史宽度曲线；ETF公司行动和总回报口径仍未审计，因此保持 Draft。
 - 本地验收：`102 passed, 24 subtests passed`；`40` 项 unittest；Node 日期轴与 JavaScript/Python 语法检查；三个离线 Playwright 脚本和一个真实 SQLite Playwright 脚本全部通过。
+- v0.9 真实数据验证与质量保护实现提交：`1afa218`；PR #7 GitHub Actions run `#41265308972` 已通过。
 
 ## v0.9 当前开发（非发布）
 - 开发分支：`feat/v09-market-breadth`，Issue #6，主分支仍以 v0.8 为稳定版。
