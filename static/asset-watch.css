@@ -19,3 +19,5 @@
 .asset-actions span{font-size:11px;color:#667b93}.asset-actions code{color:#2f548e}
 .asset-note{font-size:11px;color:#77869c;line-height:1.9;margin-top:16px}
 @media(max-width:760px){.asset-panel{padding:12px}.asset-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#asset-chart{height:400px}.asset-controls button{padding:6px 9px}.asset-head{align-items:start;flex-direction:column}}
+
+.asset-quality{margin-top:10px;padding:10px 12px;background:#fff7e9;border:1px solid #efdcb2;color:#875d26;border-radius:8px;font-size:11px;line-height:1.7}
