@@ -30,6 +30,9 @@ function render(){
   elem("b-median").textContent=numberPct(data.median_change_pct);
   elem("b-weighted").textContent=numberPct(data.turnover_weighted_change_pct);
   elem("b-raw").textContent=fmt(payload.capture.quality.raw_count);
+  const pool=payload.capture.quality.official_pool;
+  elem("b-pool").textContent=pool?fmt(pool.official_count):"未核验";
+  elem("b-coverage").textContent=pool?fmtPct(pool.coverage_ratio):"未核验";
   elem("breadth-history").textContent=payload.historical_trend_reason;
 }
 async function reload(){

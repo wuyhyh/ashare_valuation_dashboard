@@ -37,6 +37,20 @@ def records(asset_id, *, count=70, last=date(2026,10,30), first=None):
     }
 
 
+def records_with_cross_check(asset_id, *, difference=0.0):
+    payload = records(asset_id)
+    date_col, close_col = payload["date_col"], payload["close_col"]
+    cross_records = [{"date": row[date_col], "close": row[close_col] * (1 + difference)} for row in payload["records"]]
+    payload["cross_check"] = {
+        "columns": ["date", "close"], "date_col": "date", "close_col": "close",
+        "records": cross_records, "source_interface": "fixture.cross",
+        "source_name": "offline independent fixture",
+    }
+    if asset_id == "000688":
+        payload["identity"] = {"codes": ["000688"], "names": ["科创50"]}
+    return payload
+
+
 def test_asset_codes_source_types_and_distinct_price_units():
     assert asset_watch.ASSETS["000688"]["symbol"]=="sh000688"
     assert asset_watch.ASSETS["399673"]["symbol"]=="sz399673"
@@ -55,6 +69,33 @@ def test_each_data_source_normalizes_real_columns(code):
     assert result["last_date"]=="2026-10-30"
     assert result["first_date"] < result["last_date"]
     assert all(val>0 for _,val in result["rows"])
+
+
+@pytest.mark.parametrize("code", list(asset_watch.ASSETS))
+def test_independent_same_day_cross_check_is_persistable(code):
+    result = asset_watch.fetch_history(code, fetcher=lambda _id: records_with_cross_check(_id))
+    assert result["verification"]["status"] == "verified"
+    assert result["verification"]["common_dates"] == 70
+    assert result["quality"]["frequency"] == "daily_trading_observations"
+    assert result["quality"]["duplicate_dates"] == 0
+
+
+def test_cross_check_large_close_mismatch_is_rejected():
+    with pytest.raises(asset_watch.AssetDataError, match="同日收盘差异过大"):
+        asset_watch.fetch_history(
+            "399673", fetcher=lambda asset_id: records_with_cross_check(asset_id, difference=.01)
+        )
+
+
+def test_cross_check_duplicate_or_future_date_is_rejected():
+    duplicate = records_with_cross_check("399673")
+    duplicate["cross_check"]["records"].append(dict(duplicate["cross_check"]["records"][-1]))
+    with pytest.raises(asset_watch.AssetDataError, match="重复日期"):
+        asset_watch.fetch_history("399673", fetcher=lambda _: duplicate)
+    future = records_with_cross_check("518880")
+    future["cross_check"]["records"].append({"date": "2099-01-01", "close": 9})
+    with pytest.raises(asset_watch.AssetDataError, match="未来日期"):
+        asset_watch.fetch_history("518880", fetcher=lambda _: future)
 
 
 @pytest.mark.parametrize("code",list(asset_watch.ASSETS))
@@ -101,9 +142,11 @@ def test_sqlite_source_metadata_and_idempotent_updates():
         asset_watch.update_history("518880",db_path=db,fetcher=lambda name:records(name))
         report=asset_watch.report("518880",db)
         assert len(report["rows"])==70
-        assert report["source"]["source_interface"]=="ak.fund_etf_hist_em"
+        assert report["source"]["source_interface"]=="ak.fund_etf_hist_sina"
         assert report["source"]["unit"]=="元/份"
         assert report["source"]["last_date"]=="2026-10-30"
+        assert report["source"]["verification"]["status"]=="not_run"
+        assert report["source"]["quality"]["record_count"]==70
         assert report["stats"]["3m"]["available"]
         assert not report["stats"]["10y"]["available"]
         assert "不含" in report["notice"]

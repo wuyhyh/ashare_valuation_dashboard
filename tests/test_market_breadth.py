@@ -19,6 +19,13 @@ def q(code, name, change, price=10.0, turnover=1000.0):
     return {"代码": code, "名称": name, "涨跌幅": change, "最新价": price, "成交额": turnover}
 
 
+def official_pool_for(rows):
+    return {
+        row["代码"]: {"exchange": breadth.mainboard_exchange(row["代码"]), "name": row["名称"]}
+        for row in rows
+    }
+
+
 def test_mainboard_classification_boundary():
     assert breadth.mainboard_exchange("600000") == "SH"
     assert breadth.mainboard_exchange("605999") == "SH"
@@ -70,6 +77,71 @@ def test_bad_values_or_duplicate_codes_are_rejected_or_excluded():
         breadth.normalize_quotes([q("600001", "测试", 1), q("600001", "测试2", -1)])
     with pytest.raises(breadth.BreadthError, match="字段缺失"):
         breadth.normalize_quotes([{"代码": "600001"}])
+
+
+def test_tencent_schema_is_canonicalized_with_explicit_turnover_unit():
+    rows = breadth.adapt_spot_records([{
+        "code": "sh600000", "name": "浦发银行", "zxj": "10.25",
+        "zdf": "1.25", "turnover": "123.45",
+    }], "tencent")
+    assert rows == [{"代码": "600000", "名称": "浦发银行", "最新价": "10.25", "涨跌幅": "1.25", "成交额": 1_234_500.0}]
+
+
+def test_official_pool_coverage_is_recorded_and_low_coverage_rejected():
+    rows = [q("600001", "沪市", 1), q("000001", "深市", -1)]
+    capture = breadth.create_capture(
+        rows, source_name="test", source_interface="fixture", min_identified=1,
+        official_pool=official_pool_for(rows),
+    )
+    audit = capture["quality"]["official_pool"]
+    assert audit["coverage_ratio"] == 1
+    assert audit["exchange"]["SH"]["official_count"] == 1
+    incomplete = {**official_pool_for(rows), "600002": {"exchange": "SH", "name": "缺失"}}
+    with pytest.raises(breadth.BreadthError, match="官方主板名录覆盖不足"):
+        breadth.create_capture(
+            rows, source_name="test", source_interface="fixture", min_identified=1,
+            official_pool=incomplete,
+        )
+
+
+def test_auto_provider_falls_back_and_records_failed_attempt():
+    def fetcher(provider):
+        if provider == "eastmoney":
+            return {"ok": False, "error": "rate limited"}
+        return {
+            "ok": True, "version": "offline-test", "columns": ["code", "name", "zxj", "zdf", "turnover"],
+            "records": [{"code": "sh600000", "name": "浦发银行", "zxj": 10, "zdf": 1, "turnover": 5}],
+        }
+    result = breadth.fetch_spot("auto", fetcher=fetcher)
+    assert result["provider"] == "tencent"
+    assert result["source_interface"] == "ak.stock_zh_a_spot_tx"
+    assert result["attempts"][0] == {"provider": "eastmoney", "error": "rate limited"}
+
+
+def test_native_provider_column_change_is_explicit_and_can_fall_back():
+    def fetcher(provider):
+        if provider == "eastmoney":
+            return {"ok": True, "version": "offline-test", "columns": ["代码"], "records": [{"代码": "600000"}]}
+        return {
+            "ok": True, "version": "offline-test", "columns": ["code", "name", "zxj", "zdf", "turnover"],
+            "records": [{"code": "sh600000", "name": "浦发银行", "zxj": 10, "zdf": 1, "turnover": 5}],
+        }
+    result = breadth.fetch_spot("auto", fetcher=fetcher)
+    assert result["provider"] == "tencent"
+    assert "字段发生变化" in result["attempts"][0]["error"]
+
+
+def test_extreme_changes_and_official_name_mismatches_are_audited_not_deleted():
+    rows = [q("600001", "名称A", 35), q("000001", "名称B", -1)]
+    pool = official_pool_for(rows)
+    pool["600001"]["name"] = "另一个名称"
+    capture = breadth.create_capture(
+        rows, source_name="test", source_interface="fixture", min_identified=1,
+        official_pool=pool,
+    )
+    assert capture["quality"]["extreme_change_count"] == 1
+    assert capture["quality"]["official_pool"]["name_mismatch_count"] == 1
+    assert len(capture["quotes"]) == 2
 
 
 def test_capture_time_is_not_mislabelled_as_trading_date():

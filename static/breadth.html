@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>市场宽度 · VALUE LAB</title>
   <link rel="stylesheet" href="/styles.css?v=0.8.1" />
-  <link rel="stylesheet" href="/breadth.css?v=0.9" />
+  <link rel="stylesheet" href="/breadth.css?v=0.9.1" />
 </head>
 <body>
   <div class="shell">
@@ -53,14 +53,16 @@
               <div><span>涨跌幅中位数</span><b id="b-median">—</b></div>
               <div><span>成交额加权涨跌幅</span><b id="b-weighted">—</b></div>
               <div><span>原始接口返回股票数</span><b id="b-raw">—</b></div>
+              <div><span>交易所官方主板名录</span><b id="b-pool">—</b></div>
+              <div><span>行情名录覆盖率</span><b id="b-coverage">—</b></div>
             </div>
           </div>
         </section>
         <div class="breadth-notice subtle" id="breadth-history">历史宽度：需要经过交易日核验的多次可比快照，不能用当前股票名单追溯构造过去的数据。</div>
-        <p class="breadth-foot">方法论：仅统计所选股票池中可验证价格和涨跌幅、且成交额大于零的样本。未交易和缺失样本单独展示，未核实交易所全量挂牌数。上涨占比不是买卖信号。</p>
+        <p class="breadth-foot">方法论：仅统计所选股票池中可验证价格和涨跌幅、且成交额大于零的样本。行情代码会与上交所主板A股、深交所A股列表中的主板名录独立核对；未交易和缺失样本单独展示。上涨占比不是买卖信号。</p>
       </div>
     </main>
   </div>
-  <script src="/breadth.js?v=0.9"></script>
+  <script src="/breadth.js?v=0.9.1"></script>
 </body>
 </html>

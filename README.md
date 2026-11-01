@@ -29,7 +29,7 @@ git switch feat/v09-market-breadth
 git pull --ff-only origin feat/v09-market-breadth
 
 # 仅首次需主动联网采集；可分标的运行
-python app.py breadth-update
+python app.py breadth-update --provider auto
 python app.py assets-update --asset 000688
 python app.py assets-update --asset 399673
 python app.py assets-update --asset 518880
@@ -38,19 +38,19 @@ python app.py
 # 浏览器打开 /breadth.html 或 /assets.html
 ```
 
-**目前属于 Draft**：真实股票池完整性、3项跨资产实际联网数据和两页面的完整Playwright测试尚需在开发机验收。不要将页面缺失数据理解为已验证的行情。
+**目前属于 Draft**：2026-11-01 已完成腾讯主板快照与两交所名录核对、三项跨资产双源核验和本机真实 SQLite Playwright验收；东方财富快照仍受 `Push2RateLimitError` 影响，市场宽度交易日仍无法从即时接口独立确认。不要将无数据页面或 CI 模拟数据理解为真实行情。
 
 ## v0.9（开发中）：科创50、创业板50与华安黄金ETF价格观察
 - `/assets.html` 提供三对象真实收盘价走势图，可切换3个月、6个月、1/3/5/8/10年和全部历史；日期轴缩放自动细化。
 - `python app.py assets-update` 显式更新全部三项，或以 `--asset 000688|399673|518880` 单项更新；`python app.py assets-doctor` 查看本机数据覆盖。行情存入独立 `asset_prices.sqlite3`，不随Git推送，不在启动时自动采集。
-- **科创50与创业板50只添加指数点位研究；PE/PB历史来源待核验。** 黄金采用518880场内非复权价，不能误当Au99.99现货或基金净值，不提供PE/PB。真实联网尚未验收，参见 `docs/V09_ASSETS_AUDIT.md`。
+- **科创50与创业板50只添加指数点位研究；PE/PB历史来源待核验。** 黄金采用518880场内非复权价，不能误当Au99.99现货或基金净值，不提供PE/PB。三项主源均已与独立交叉源核验，覆盖和差异参见 `docs/V09_ASSETS_AUDIT.md`。
 - 10年数据不足时明确拒绝短历史冒充，按钮和时间轴直接放在图表上方。
 
 ## v0.9（开发中）：沪深主板市场宽度
 - 新增 `/breadth.html` 市场宽度页面，显示可审核的沪深主板**行情快照**，支持上海/深圳/合计切换和 ST 过滤；涨跌数、上涨比例、无成交和缺失报价分别统计。
-- `python app.py breadth-doctor`：不联网查看本机快照；`python app.py breadth-update`：主动调用 `ak.stock_zh_a_spot_em`，校验返回后存入独立 `breadth.sqlite3`。只浏览页面或运行 `python app.py` 不会自动抓取。
+- `python app.py breadth-doctor`：不联网查看本机快照；`python app.py breadth-update --provider auto|eastmoney|tencent|sina`：主动调用所选数据源，校验字段、两交所主板股票池覆盖和同源快照完整性后存入独立 `breadth.sqlite3`。只浏览页面或运行 `python app.py` 不会自动抓取。
 - `GET /api/breadth` 只读，严格不提供演示行情或伪造历史；“采集日”不等于“实际交易日”，接口尚未可靠提供并验证交易日，故尚不启用历史走势。
-- **重要**：该模块目前只有离线逻辑测试，股票池代码前缀筛查尚需与交易所证券名录交叉校验；真实联网覆盖率、上游数据日期和实际网页交互仍待 Codex 本机验证。详见 `docs/V09_BREADTH_AUDIT.md`。
+- **重要**：2026-11-01 腾讯快照实测 `5,577` 只，其中沪深主板 `3,194` 只，与上交所 `1,700` 只和深交所主板 `1,494` 只代码完全一致；东方财富调用本次限流失败。由于在周日采集且即时接口不提供可独立核实的报价交易日，仍不启用历史宽度曲线。详见 `docs/V09_BREADTH_AUDIT.md`。
 
 ## v0.8 数据可用性
 

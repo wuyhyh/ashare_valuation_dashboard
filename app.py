@@ -517,7 +517,11 @@ def main():
     assets_update = sub.add_parser("assets-update", help="显式联网更新科创50、创业板50和黄金ETF价格")
     assets_update.add_argument("--asset", choices=[*WATCH_ASSETS, "all"], default="all")
     sub.add_parser("breadth-doctor", help="无需联网：查看最新沪深主板真实市场宽度快照")
-    sub.add_parser("breadth-update", help="主动联网采集沪深主板A股行情快照（不自动回填交易日）")
+    breadth_update = sub.add_parser("breadth-update", help="主动联网采集沪深主板A股行情快照（不自动回填交易日）")
+    breadth_update.add_argument(
+        "--provider", choices=["auto", "eastmoney", "tencent", "sina"], default="auto",
+        help="行情快照源；auto 会有界回退并记录实际来源",
+    )
     doctor = sub.add_parser("doctor", help="无需联网：查看当前源码、SQLite 路径与12条真实数据的覆盖情况")
     sync_parser = sub.add_parser("sync", help="显式联网更新四指数点位及PE/PB；启动服务本身不会更新")
     sync_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="csindex_official")
@@ -572,7 +576,7 @@ def main():
         return 0
     elif args.command == "breadth-update":
         try:
-            result = breadth_update_from_akshare(BREADTH_DB)
+            result = breadth_update_from_akshare(BREADTH_DB, provider=args.provider)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
         except Exception as exc:

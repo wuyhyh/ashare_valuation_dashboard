@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>跨资产观察 · VALUE LAB</title>
   <link rel="stylesheet" href="/styles.css?v=0.8.1">
-  <link rel="stylesheet" href="/asset-watch.css?v=0.9">
+  <link rel="stylesheet" href="/asset-watch.css?v=0.9.1">
 </head>
 <body>
 <div class="shell">
@@ -49,6 +49,7 @@
     </div>
     <div id="asset-meta" class="asset-meta"></div>
     <div id="asset-quality" class="asset-quality" hidden></div>
+    <div id="asset-verification" class="asset-verification"></div>
     <div class="asset-actions"><button id="asset-reload" class="btn btn-outline">↻ 重读本机数据</button><span>行情更新需在终端显式运行 <code>python app.py assets-update</code></span></div>
    </section>
    <p class="asset-note">仅展示真实原始价格与所选期间的算术涨跌幅及从区间最高点计算的最大回撤。10年历史不足时显示“历史不足”，绝不用较短时间模拟。指数不等于ETF基金收益；黄金ETF场内价格不包含交易费用与分红再投资。</p>
@@ -56,6 +57,6 @@
  </main>
 </div>
 <script src="/plotly.min.js"></script>
-<script src="/asset-watch.js?v=0.9"></script>
+<script src="/asset-watch.js?v=0.9.1"></script>
 </body>
 </html>

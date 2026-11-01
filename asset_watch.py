@@ -24,17 +24,23 @@ ASSETS = {
         "name": "科创50", "symbol": "sh000688", "type": "equity_index",
         "unit": "点", "since": "20191231", "source_interface": "ak.stock_zh_index_daily",
         "source_name": "新浪指数日线 / AKShare", "method": "未复权的指数收盘点位",
+        "cross_check_interface": "ak.stock_zh_index_hist_csindex",
+        "cross_check_name": "中证指数官方历史行情 / AKShare",
     },
     "399673": {
         "name": "创业板50", "symbol": "sz399673", "type": "equity_index",
         "unit": "点", "since": "20140101", "source_interface": "ak.stock_zh_index_daily",
         "source_name": "新浪指数日线 / AKShare", "method": "未复权的指数收盘点位",
+        "cross_check_interface": "ak.stock_zh_index_daily_tx",
+        "cross_check_name": "腾讯指数日线 / AKShare",
     },
     "518880": {
         "name": "华安黄金ETF", "symbol": "518880", "type": "gold_etf",
-        "unit": "元/份", "since": "20130718", "source_interface": "ak.fund_etf_hist_em",
-        "source_name": "东方财富ETF历史行情 / AKShare",
+        "unit": "元/份", "since": "20130718", "source_interface": "ak.fund_etf_hist_sina",
+        "source_name": "新浪ETF日行情 / AKShare",
         "method": "场内未复权收盘价；不是Au99.99、ETF净值或复权总回报",
+        "cross_check_interface": "ak.stock_zh_a_hist_tx",
+        "cross_check_name": "腾讯证券日频行情 / AKShare",
     },
 }
 
@@ -65,18 +71,51 @@ def _worker(asset_id: str, result_queue):
             frame = ak.stock_zh_index_daily(symbol=spec["symbol"])
             date_col, close_col = "date", "close"
         else:
-            frame = ak.fund_etf_hist_em(
-                symbol=spec["symbol"], period="daily",
-                start_date=spec["since"],
-                end_date=datetime.now(TZ).strftime("%Y%m%d"), adjust="",
-            )
-            date_col, close_col = "日期", "收盘"
+            frame = ak.fund_etf_hist_sina(symbol="sh518880")
+            date_col, close_col = "date", "close"
+        cross_error = None
+        cross = None
+        identity = None
+        try:
+            if asset_id == "000688":
+                cross_frame = ak.stock_zh_index_hist_csindex(
+                    symbol="000688", start_date=spec["since"],
+                    end_date=datetime.now(TZ).strftime("%Y%m%d"),
+                )
+                cross_date_col, cross_close_col = "日期", "收盘"
+                if cross_frame is not None and not cross_frame.empty:
+                    identity = {
+                        "codes": sorted({str(value) for value in cross_frame["指数代码"].dropna().unique()}),
+                        "names": sorted({str(value) for value in cross_frame["指数中文简称"].dropna().unique()}),
+                    }
+            elif asset_id == "399673":
+                cross_frame = ak.stock_zh_index_daily_tx(
+                    symbol=spec["symbol"], start_date=spec["since"],
+                    end_date=datetime.now(TZ).strftime("%Y%m%d"),
+                )
+                cross_date_col, cross_close_col = "date", "close"
+            else:
+                cross_frame = ak.stock_zh_a_hist_tx(
+                    symbol="sh518880", start_date=spec["since"],
+                    end_date=datetime.now(TZ).strftime("%Y%m%d"), adjust="",
+                )
+                cross_date_col, cross_close_col = "date", "close"
+            cross = {
+                "columns": list(cross_frame.columns) if cross_frame is not None else [],
+                "date_col": cross_date_col, "close_col": cross_close_col,
+                "records": [] if cross_frame is None else cross_frame.to_dict(orient="records"),
+                "source_interface": spec["cross_check_interface"],
+                "source_name": spec["cross_check_name"],
+            }
+        except Exception as exc:
+            cross_error = type(exc).__name__ + ": " + str(exc)
         result_queue.put({
             "ok": True,
             "version": str(getattr(ak, "__version__", "unknown")),
             "columns": list(frame.columns) if frame is not None else [],
             "date_col": date_col, "close_col": close_col,
             "records": [] if frame is None else frame.to_dict(orient="records"),
+            "cross_check": cross, "cross_error": cross_error, "identity": identity,
         })
     except Exception as exc:
         result_queue.put({"ok": False, "error": type(exc).__name__ + ": " + str(exc)})
@@ -135,10 +174,72 @@ def fetch_history(asset_id: str, timeout_seconds: int = 65, fetcher=None) -> dic
         raise AssetDataError("有效历史少于30个交易日，拒绝更新")
     if (datetime.now(TZ).date() - date.fromisoformat(rows[-1][0])).days > 45:
         raise AssetDataError("数据源最新日期超过45天前，拒绝作为近期行情激活")
+    gaps = [
+        (date.fromisoformat(rows[index][0]) - date.fromisoformat(rows[index - 1][0])).days
+        for index in range(1, len(rows))
+    ]
+    verification = {
+        "status": "not_run",
+        "source_interface": ASSETS[asset_id]["cross_check_interface"],
+        "source_name": ASSETS[asset_id]["cross_check_name"],
+        "reason": "测试注入数据未提供独立交叉源",
+    }
+    cross = payload.get("cross_check")
+    if payload.get("cross_error"):
+        verification = {
+            **verification, "status": "unavailable", "reason": payload["cross_error"],
+        }
+    elif cross is not None:
+        cross_columns = set(cross.get("columns") or [])
+        cross_date_col, cross_close_col = cross.get("date_col"), cross.get("close_col")
+        if not cross_date_col or not cross_close_col or not {cross_date_col, cross_close_col}.issubset(cross_columns):
+            raise AssetDataError("独立交叉源字段结构改变，拒绝更新")
+        cross_values = {}
+        for record in cross.get("records") or []:
+            day = _canonical_date(record.get(cross_date_col))
+            if day > datetime.now(TZ).date().isoformat():
+                raise AssetDataError("独立交叉源包含未来日期：" + day)
+            if day in cross_values:
+                raise AssetDataError("独立交叉源存在重复日期：" + day)
+            value = record.get(cross_close_col)
+            try:
+                close = float(value)
+            except (ValueError, TypeError, OverflowError) as exc:
+                raise AssetDataError("独立交叉源包含无效收盘值：" + day) from exc
+            if math.isfinite(close) and close > 0:
+                cross_values[day] = close
+        primary_values = dict(rows)
+        common = sorted(set(primary_values) & set(cross_values))
+        if len(common) < 20:
+            raise AssetDataError(f"独立交叉源共同交易日仅 {len(common)} 条，拒绝更新")
+        sample = common[-30:]
+        relative = [abs(primary_values[day] - cross_values[day]) / cross_values[day] for day in sample]
+        max_relative = max(relative)
+        if max_relative > .0005:
+            raise AssetDataError(f"独立行情源最近同日收盘差异过大：{max_relative:.4%}")
+        identity = payload.get("identity")
+        if asset_id == "000688" and (
+            not identity or identity.get("codes") != ["000688"] or "科创50" not in identity.get("names", [])
+        ):
+            raise AssetDataError("科创50官方交叉源指数身份不匹配")
+        verification = {
+            "status": "verified", "source_interface": cross["source_interface"],
+            "source_name": cross["source_name"], "common_dates": len(common),
+            "sample_dates": len(sample), "sample_start": sample[0], "sample_end": sample[-1],
+            "max_relative_close_difference": max_relative,
+            "identity": identity, "reason": None,
+        }
     return {
         "asset_id": asset_id, "meta": ASSETS[asset_id],
         "rows": rows, "version": str(payload.get("version") or "unknown"),
         "first_date": rows[0][0], "last_date": rows[-1][0],
+        "verification": verification,
+        "quality": {
+            "frequency": "daily_trading_observations", "record_count": len(rows),
+            "max_calendar_gap_days": max(gaps) if gaps else 0,
+            "calendar_gaps_over_10_days": sum(gap > 10 for gap in gaps),
+            "duplicate_dates": 0, "invalid_close_values": 0,
+        },
     }
 
 
@@ -151,13 +252,20 @@ def connect(db_path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
             source_interface TEXT NOT NULL, source_name TEXT NOT NULL,
             source_version TEXT, unit TEXT NOT NULL, method TEXT NOT NULL,
             first_date TEXT NOT NULL, last_date TEXT NOT NULL,
-            fetched_at TEXT NOT NULL
+            fetched_at TEXT NOT NULL,
+            verification_json TEXT NOT NULL DEFAULT '{}',
+            quality_json TEXT NOT NULL DEFAULT '{}'
         );
         CREATE TABLE IF NOT EXISTS asset_close (
             asset_id TEXT NOT NULL, date TEXT NOT NULL, close REAL NOT NULL,
             PRIMARY KEY(asset_id, date)
         );
     """)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(asset_series)")}
+    if "verification_json" not in columns:
+        connection.execute("ALTER TABLE asset_series ADD COLUMN verification_json TEXT NOT NULL DEFAULT '{}'")
+    if "quality_json" not in columns:
+        connection.execute("ALTER TABLE asset_series ADD COLUMN quality_json TEXT NOT NULL DEFAULT '{}'")
     return connection
 
 
@@ -193,16 +301,21 @@ def update_history(asset_id: str, *, db_path: str | Path = DEFAULT_DB, fetcher=N
         )
         db.execute("""
             INSERT INTO asset_series(asset_id,source_interface,source_name,source_version,
-                                     unit,method,first_date,last_date,fetched_at)
-            VALUES(?,?,?,?,?,?,?,?,?)
+                                     unit,method,first_date,last_date,fetched_at,
+                                     verification_json,quality_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(asset_id) DO UPDATE SET
                 source_version=excluded.source_version,
                 first_date=excluded.first_date,last_date=excluded.last_date,
-                fetched_at=excluded.fetched_at
+                fetched_at=excluded.fetched_at,
+                verification_json=excluded.verification_json,
+                quality_json=excluded.quality_json
         """, (
             asset_id, spec["source_interface"], spec["source_name"], fresh["version"],
             spec["unit"], spec["method"], fresh["first_date"], fresh["last_date"],
             datetime.now(timezone.utc).isoformat(),
+            json.dumps(fresh["verification"], ensure_ascii=False),
+            json.dumps(fresh["quality"], ensure_ascii=False),
         ))
     return {"asset": asset_id, "name": ASSETS[asset_id]["name"],
             "count": len(fresh["rows"]), "last_date": fresh["last_date"],
@@ -295,6 +408,8 @@ def report(asset_id: str, db_path: str | Path = DEFAULT_DB) -> dict:
             (asset_id,)
         )]
         source = dict(source)
+        source["verification"] = json.loads(source.pop("verification_json", "{}"))
+        source["quality"] = json.loads(source.pop("quality_json", "{}"))
     return {
         "available": True, "asset": asset_id, "meta": meta, "source": source,
         "rows": rows,
