@@ -41,6 +41,7 @@ from data_sources.storage import connect as storage_connect
 from decomposition import analyze
 from breadth import DEFAULT_DB as BREADTH_DB, latest_report as breadth_latest_report, update_from_akshare as breadth_update_from_akshare
 from breadth_history import breadth_trend
+from breadth_close_verify import verify_close as breadth_verify_close
 from asset_watch import DEFAULT_DB as ASSETS_DB, ASSETS as WATCH_ASSETS, overview as asset_overview, report as asset_report, update_history as asset_update_history
 
 ROOT = Path(__file__).resolve().parent
@@ -532,6 +533,10 @@ def main():
         "--provider", choices=["auto", "eastmoney", "tencent", "sina"], default="auto",
         help="行情快照源；auto 会有界回退并记录实际来源",
     )
+    verify_parser = sub.add_parser("breadth-verify-close", help="显式联网用独立逐股日线核验同一收盘日快照")
+    verify_parser.add_argument("--capture-id", default=None, help="默认核验最新捕获，可指定历史捕获ID")
+    verify_parser.add_argument("--reference", choices=["sina", "eastmoney"], default="sina",
+                               help="独立参考日线来源，必须与市场快照来源不同")
     doctor = sub.add_parser("doctor", help="无需联网：查看当前源码、SQLite 路径与12条真实数据的覆盖情况")
     sync_parser = sub.add_parser("sync", help="显式联网更新四指数点位及PE/PB；启动服务本身不会更新")
     sync_parser.add_argument("--provider", choices=["auto", *PROVIDER_CHOICES], default="csindex_official")
@@ -591,6 +596,16 @@ def main():
             return 0
         except Exception as exc:
             print(f"市场宽度采集失败：{exc}", file=sys.stderr)
+            return 1
+    elif args.command == "breadth-verify-close":
+        try:
+            report = breadth_verify_close(
+                BREADTH_DB, capture_id=args.capture_id, reference_provider=args.reference,
+            )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
+        except Exception as exc:
+            print(f"独立收盘验证失败（不会将快照视为真实收盘历史）：{exc}", file=sys.stderr)
             return 1
     elif args.command == "doctor":
         print(json.dumps({
