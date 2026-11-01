@@ -40,6 +40,7 @@ from data_sources.market import MARKET_HISTORY_START
 from data_sources.storage import connect as storage_connect
 from decomposition import analyze
 from breadth import DEFAULT_DB as BREADTH_DB, latest_report as breadth_latest_report, update_from_akshare as breadth_update_from_akshare
+from breadth_history import breadth_trend
 from asset_watch import DEFAULT_DB as ASSETS_DB, ASSETS as WATCH_ASSETS, overview as asset_overview, report as asset_report, update_history as asset_update_history
 
 ROOT = Path(__file__).resolve().parent
@@ -406,6 +407,18 @@ class Handler(BaseHTTPRequestHandler):
             return response(self, 200, asset_report(asset, ASSETS_DB) if asset else asset_overview(ASSETS_DB))
         if p.path == "/api/breadth":
             return response(self, 200, breadth_latest_report(BREADTH_DB))
+        if p.path == "/api/breadth-trend":
+            scope = params.get("scope", ["SH_SZ_ALL"])[0]
+            st = params.get("exclude_st", ["0"])[0]
+            limit_value = params.get("limit", ["90"])[0]
+            if st not in ("0", "1"):
+                return response(self, 400, {"error": "exclude_st 只允许 0/1"})
+            try:
+                limit = int(limit_value)
+                result = breadth_trend(BREADTH_DB, scope=scope, exclude_st=(st == "1"), limit=limit)
+            except (ValueError, OverflowError) as exc:
+                return response(self, 400, {"error": str(exc)})
+            return response(self, 200, result)
         if p.path == "/api/runtime":
             return response(self, 200, get_runtime_info())
         if p.path == "/api/status":
