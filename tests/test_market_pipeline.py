@@ -154,6 +154,34 @@ class MarketPipelineTests(unittest.TestCase):
         self.assertEqual(calls, ["sina", "tencent"])
         self.assertEqual(result["provider"], "tencent")
 
+    def test_default_market_source_window_uses_true_per_index_start(self):
+        from data_sources.market import MARKET_HISTORY_START
+        self.assertEqual(MARKET_HISTORY_START["000300"], "20050408")
+        requests = []
+
+        def fake_provider(code, start_date, end_date, timeout):
+            requests.append((code, start_date, end_date))
+            return {
+                "version": "offline", "columns": ["日期", "收盘"],
+                "records": [
+                    {"日期": "2005-04-08", "收盘": 1003.45},
+                    {"日期": "2016-01-04", "收盘": 3727.63},
+                ],
+            }
+
+        result = fetch_index_history(
+            "000300", end_date="20261030", retries=1, provider=fake_provider,
+        )
+        self.assertEqual(requests[0][1], "20050408")
+        self.assertEqual(len(result["rows"]), 2)
+
+        result = fetch_index_history(
+            "000300", start_date="20160101", end_date="20261030",
+            retries=1, provider=fake_provider,
+        )
+        self.assertEqual(requests[1][1], "20160101")
+        self.assertEqual(len(result["rows"]), 1)
+
     def test_official_provider_is_explicit_and_not_in_auto_order(self):
         from unittest.mock import patch
         from data_sources.market import PROVIDER_CHOICES, PROVIDER_ORDER

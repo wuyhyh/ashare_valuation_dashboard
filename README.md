@@ -160,12 +160,14 @@ python app.py update --index all --metric all
 
 ```bash
 python app.py diagnose-market --index 000300 --provider sina --cross-check tencent --start 20261001 --end 20261030
-python app.py update-market --index 000300 --provider auto --start 20160101 --end 20261030
-python app.py diagnose-market --index 000300 --provider csindex_official --cross-check sina --start 20160101 --end 20261030
-python app.py update-market --index 000300 --provider csindex_official --start 20160101 --end 20261030
+python app.py update-market --index 000300 --provider auto --start 20050408 --end 20261030
+python app.py diagnose-market --index 000300 --provider csindex_official --cross-check sina --start 20050408
+python app.py update-market --index 000300 --provider csindex_official --start 20050408
 python app.py import-market --index 000300 --file index.csv \
   --source-name "文件供应方" --verification-notes "已核对指数代码、日期与收盘字段"
 ```
+
+**沪深300历史修复（2026-11-01）**：此前 `app.py sync`、页面指数更新入口和 `update-market` 默认从 `20160101` 抓取沪深300日线，导致“全部”视图上方指数仅从2016年开始，下方乐咕估值却从2005年开始。现将沪深300的默认指数收盘起点改为 `20050408`（指数正式发布日），`update-market` 和 `diagnose-market` 不指定 `--start` 时按各自指数起点选取。更改代码**不会自动补全已有 SQLite**：请先运行 `python app.py diagnose-market --index 000300 --provider csindex_official --start 20050408`，确认实际首日与源字段，再运行 `python app.py update-market --index 000300 --provider csindex_official --start 20050408`，然后 `python app.py doctor` 检查覆盖范围并刷新页面。正式实测旧记录仍为2016起，2005扩展成功须以本机联网实际采集为准；不得用模拟曲线填空。若官方源不可用可先诊断新浪 `--provider sina`，仅在身份和样本完整性通过后再更新。
 
 命令行更新失败返回非零退出码。网页更新仍调用原有 `/api/update` 和 `/api/update-market`，失败时保留原始完整历史。
 
