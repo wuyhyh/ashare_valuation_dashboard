@@ -1,5 +1,16 @@
-## v0.10 全 A 股市场宽度（Issue #9，Draft）
-- 开发分支：`feat/v010-all-a-share-breadth`，基于尚未合并的 `feat/v09-market-breadth`；目标 PR 基线为 v0.9，不修改或合并 `main`。
+# 项目状态 · 当前发布版
+
+最后核对：2026-11-01
+
+## 当前稳定版：v0.10（已合并 main）
+- v0.9 已通过 PR #7 合并：`51f31f4aaaded7fce8ebfc11187562c95a9bbb2f`，交付沪深主板宽度与科创50/创业板50/518880真实价格观察。
+- v0.10 已通过 PR #10 合并：`7b39fa9fef9b67be26bb59ecb1b29a3c3ee91b8f`，交付沪深全部A股（沪主板、深主板、创业板、科创板）宽度与独立北交所切片；官方名录外报价不得计入涨跌统计。
+- 合并前后 GitHub Actions 的 Python、Node 和 Chromium Playwright 作业均成功，真实联网交叉验证详见 `docs/V09_BREADTH_AUDIT.md`、`docs/V09_ASSETS_AUDIT.md`、`docs/V010_BREADTH_AUDIT.md`。
+- 采集时间仍不代表已核验的交易日期；历史宽度曲线禁用。518880 是未复权场内价而非黄金现货、净值或总回报；科创50/创业板50尚未提供已核验 PE/PB。
+- SQLite 私有真实行情不会随着 Git clone/pull 自动迁移；本机需显式使用 `python app.py sync`、`python app.py breadth-update`、`python app.py assets-update` 按需要更新。
+
+## v0.10 全 A 股市场宽度（Issue #9，已发布）
+- 开发来源：`feat/v010-all-a-share-breadth`；已通过 PR #10 合并到 `main`。
 - 默认市场范围已从沪深主板扩展为上海主板、深圳主板、创业板、科创板合计；主板合计与各板块可独立查看，北交所作为独立范围显示且不计入默认沪深 A 股。
 - 股票身份由上交所 `主板A股/科创板`、深交所 `A股列表` 和北交所官方证券名录决定，不受个人交易权限或自选股影响；`689009` CDR 单列排除，`302132` 按深交所官方创业板身份纳入。
 - `breadth.sqlite3` 采用向后兼容迁移：新增 `coverage_scope`、`board`、`security_type`；v0.9 旧快照回填为 `mainboard_only`，不能被新页面当作全市场快照或历史数据。
@@ -7,11 +18,11 @@
 - 最新真实快照 `a1ead997208849258f8cf810cfed46a3`：沪深 A 股有效报价 `5,222`、有效成交 `5,216`、零成交 `6`、缺失报价 `0`、风险警示 `194`、名录外报价 `0`；采集时点为周日，交易日期仍未核验，因此不生成历史市场宽度曲线。
 - 页面已通过真实 SQLite 的桌面端和 390px Playwright 验收；初审修复后的离线完整回归为 `108 passed, 24 subtests passed`、`40` 项 unittest、Node 日期轴以及 Python/JavaScript 语法检查。
 - 实现提交：`a708cdb5ffe336d36c4f240dc85e6b218e82c1aa`；GitHub Actions push run `#41267522924` 的 Python/Node 与 Chromium Playwright 作业均通过。
-- Draft PR #10 以 `feat/v09-market-breadth` 为目标分支，等待 ChatGPT 终审，不合并 main。完整证据见 `docs/V010_BREADTH_AUDIT.md`。
+- PR #10 已终审合并到 `main`，合并 SHA `7b39fa9fef9b67be26bb59ecb1b29a3c3ee91b8f`。完整实测依据见 `docs/V010_BREADTH_AUDIT.md`。
 - PR #10 初审指出名录外六位代码曾可能回退到前缀分类；现已在标准化入口隔离，质量结果明确记录数量、样例和排除原因，并增加真实特殊代码、CDR、北交所和 SQLite 不落库回归。
 - 初审修复提交 `0f6c1bb0f559d2fd4aef392385ac5a1096dd2f2b`，北交所测试修正提交 `3b3cab4a12c490dfb22aa54780e326b2c3e00794`；最新 GitHub Actions run `#41284932379` 成功。
 
-## v0.9 跨资产观察增量（Issue #8，尚未发布）
+## v0.9 跨资产观察增量（Issue #8，已发布）
 - 在同一分支增加 `asset_watch.py`、`/api/assets`、`assets-update` / `assets-doctor` 和 `/assets.html`，覆盖科创50（000688）、创业板50（399673）、华安黄金ETF（518880）。
 - 对象分类和价格单位、来源字段、行情历史保存在独立 `asset_prices.sqlite3`；不引入未核验PE/PB，不把黄金ETF场内价与净值或Au99.99拼接。
 - 2026-11-01 使用 AKShare `1.20.18` 联网验证：科创50 `1,653` 条（`2020-01-02`—`2026-10-30`）、创业板50 `3,007` 条（`2014-06-18`—`2026-10-30`）、518880 `3,222` 条（`2013-07-29`—`2026-10-30`）。
@@ -24,23 +35,23 @@
 - 跨资产增加价格滞后、长历史空缺及单样本异常跳变的质量提醒；未验证的ETF公司行动不可直接转成收益修正。
 - 市场宽度实测东方财富 `stock_zh_a_spot_em` 限流失败；`auto` 选中腾讯 `stock_zh_a_spot_tx`，原始 `5,577` 只，识别沪深主板 `3,194` 只。
 - 与上交所主板 A 股 `1,700` 只、深交所主板 `1,494` 只名录独立核对：代码覆盖 `100%`，缺失、多余和名称差异均为 `0`。
-- 本次周日快照无法从即时源独立证明真实报价交易日，依然不构造历史宽度曲线；ETF公司行动和总回报口径仍未审计，因此保持 Draft。
+- 本次周日快照无法从即时源独立证明真实报价交易日，依然不构造历史宽度曲线；ETF公司行动和总回报口径仍未审计，因此历史宽度曲线仍禁用。
 - 本地验收：`102 passed, 24 subtests passed`；`40` 项 unittest；Node 日期轴与 JavaScript/Python 语法检查；三个离线 Playwright 脚本和一个真实 SQLite Playwright 脚本全部通过。
 - v0.9 真实数据验证与质量保护实现提交：`1afa218`；PR #7 GitHub Actions run `#41265308972` 已通过。
 
-## v0.9 当前开发（非发布）
-- 开发分支：`feat/v09-market-breadth`，Issue #6，主分支仍以 v0.8 为稳定版。
+## v0.9 先前开发记录（已发布）
+- 来源分支：`feat/v09-market-breadth`，Issue #6；已通过 PR #7 合并至 `main`。
 - 已提交：独立 `breadth.py` 实时股票快照标准化、主板初筛、ST筛选、涨跌/零成交统计、`breadth.sqlite3` 独立存储；`/api/breadth` 只读接口、`breadth-doctor` / `breadth-update` 命令和 `/breadth.html` 初版 UI。
 - 已建立离线测试与本机真实 SQLite Playwright；真实腾讯快照、交易所股票池覆盖、ST/零成交/异常涨跌审计已完成，详见 `docs/V09_BREADTH_AUDIT.md`。
 - 尚待：即时行情真实报价交易日的可验证字段、连续可比历史快照、ETF公司行动与总回报口径。
 - 不允许基于当日仍上市名单回填历史数据，也不允许以抓取日期代替交易日期。见 `docs/V09_BREADTH_AUDIT.md`。
 
-# 项目状态 · 共享事实记录
+# v0.8 及更早版本的历史项目记录
 
-最后更新：2026-11-01
+以下记录反映其所属版本的开发或发布时点，不代表当前稳定版。
 
-## 最新发布状态
-- 当前稳定版：v0.8，已合并至 `main`，合并提交 `25c154dbb9668233c2c62ec892e461cb5a8675a9`。
+## v0.8 当时的发布状态
+- 当时的稳定版：v0.8，已合并至 `main`，合并提交 `25c154dbb9668233c2c62ec892e461cb5a8675a9`。
 - 四大宽基 PE/PB、独立官方收盘核验、本地 `doctor` / `sync`、运行环境状态和真实数据优先策略已进入主分支。
 - SQLite 行情不随 Git 同步；无本地数据时须显式执行 `python app.py sync`。
 - 市场宽度将从 v0.9 独立开发，严格区分采集时点、股票池和交易日期。
@@ -61,8 +72,8 @@
 - 空库默认不再展示看似真实的演示曲线；只有显式 `demo=1` 才允许演示数据。
 - 新增 `tests/test_local_runtime.py` 回归，CI 结果以对应最新提交为准；**不得把开发机数据状态当成本机通用状态**。
 
-## 当前版本
-- 当前主分支：`main`，已包含 v0.7。合并提交：`ede49de38e95a2456e72f02e6ea6ca49094bca67`（2026-11-01）。
+## v0.7 当时的发布记录
+- 当时主分支：`main`，已包含 v0.7。合并提交：`ede49de38e95a2456e72f02e6ea6ca49094bca67`（2026-11-01）。
 - 集成来源：PR #3（`feat/v07-data-readiness`）已合并；PR #2 官方数据能力已由 PR #3 吸收，无须重复合并；Issue #1 已关闭。
 - v0.7 原实现提交：月频归因/多源行情 `9e925b4`；官方源/覆盖面板 `6b5c9ba`。
 - 本次审查修复与集成提交：`9c782d6`。
