@@ -80,6 +80,7 @@ v0.10 将 v0.9 的沪深主板时点快照扩展为以下稳定范围：
 - 离线 Playwright：估值日期轴、全市场宽度、跨资产三个脚本通过；宽度脚本使用明确标记的模拟响应，不代表联网成功。
 - 真实 SQLite Playwright：默认沪深 A 股 `5,222`、五板块 100% 官方覆盖、桌面端、390px 和页面脚本错误为 `0` 均通过。
 - 实现提交 `a708cdb5ffe336d36c4f240dc85e6b218e82c1aa` 的 GitHub Actions push run `#41267522924` 已成功完成 Python/Node 回归与 Chromium Playwright 作业。
+- PR #10 初审修复提交 `0f6c1bb0f559d2fd4aef392385ac5a1096dd2f2b`，北交所测试修正提交 `3b3cab4a12c490dfb22aa54780e326b2c3e00794`；后者 GitHub Actions run `#41284932379` 的测试与 Chromium Playwright 作业成功。
 
 ## 尚存限制
 

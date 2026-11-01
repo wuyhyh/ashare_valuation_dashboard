@@ -123,4 +123,5 @@
 - [x] 记录 `unexpected_quote_count`、最多20个代码样例和 `outside_official_pool` 排除原因。
 - [x] 增加 `302132` 创业板、`689009` CDR、伪造 `688999` 名录外报价及 SQLite 不落库测试。
 - [x] 本地重跑 `108` 项 pytest、`40` 项 unittest、Node、模拟与真实 SQLite Playwright，桌面及390px均通过。
-- [ ] 推送修复并确认最新 GitHub Actions，回复 PR 审查记录。
+- [x] 推送修复 `0f6c1bb` 与测试修正 `3b3cab4`；GitHub Actions run `#41284932379` 的测试与浏览器作业均通过。
+- [ ] 回复 PR 审查记录，等待 ChatGPT 最终审查。

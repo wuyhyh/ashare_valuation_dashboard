@@ -8,7 +8,8 @@
 - 页面已通过真实 SQLite 的桌面端和 390px Playwright 验收；初审修复后的离线完整回归为 `108 passed, 24 subtests passed`、`40` 项 unittest、Node 日期轴以及 Python/JavaScript 语法检查。
 - 实现提交：`a708cdb5ffe336d36c4f240dc85e6b218e82c1aa`；GitHub Actions push run `#41267522924` 的 Python/Node 与 Chromium Playwright 作业均通过。
 - Draft PR #10 以 `feat/v09-market-breadth` 为目标分支，等待 ChatGPT 终审，不合并 main。完整证据见 `docs/V010_BREADTH_AUDIT.md`。
-- PR #10 初审指出名录外六位代码曾可能回退到前缀分类；现已在标准化入口隔离，质量结果明确记录数量、样例和排除原因，并增加真实特殊代码、CDR、SQLite 不落库回归。最终修复提交与 CI 在推送后补录。
+- PR #10 初审指出名录外六位代码曾可能回退到前缀分类；现已在标准化入口隔离，质量结果明确记录数量、样例和排除原因，并增加真实特殊代码、CDR、北交所和 SQLite 不落库回归。
+- 初审修复提交 `0f6c1bb0f559d2fd4aef392385ac5a1096dd2f2b`，北交所测试修正提交 `3b3cab4a12c490dfb22aa54780e326b2c3e00794`；最新 GitHub Actions run `#41284932379` 成功。
 
 ## v0.9 跨资产观察增量（Issue #8，尚未发布）
 - 在同一分支增加 `asset_watch.py`、`/api/assets`、`assets-update` / `assets-doctor` 和 `/assets.html`，覆盖科创50（000688）、创业板50（399673）、华安黄金ETF（518880）。
