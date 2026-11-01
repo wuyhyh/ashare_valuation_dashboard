@@ -1,4 +1,4 @@
-# A 股市场估值观察站（main v0.8 / v0.9 开发中）
+# A 股市场估值观察站（main v0.8 / v0.9、v0.10 开发中）
 
 本地运行的 A 股指数估值仪表盘：Python HTTP 服务 + SQLite + Plotly.js。v0.8 在保留既有界面、统计和 SQLite v3 结构的前提下，完成上证50、沪深300、中证500、中证1000的真实 PE TTM、PB 与指数收盘验证，并启用严格同日、同来源、同口径、同频率的四指数历史百分位比较。
 
@@ -39,6 +39,25 @@ python app.py
 ```
 
 **目前属于 Draft**：2026-11-01 已完成腾讯主板快照与两交所名录核对、三项跨资产双源核验和本机真实 SQLite Playwright验收；东方财富快照仍受 `Push2RateLimitError` 影响，市场宽度交易日仍无法从即时接口独立确认。不要将无数据页面或 CI 模拟数据理解为真实行情。
+
+## 体验 v0.10 开发分支（沪深全市场宽度）
+
+```bash
+git fetch origin
+git switch feat/v010-all-a-share-breadth
+git pull --ff-only origin feat/v010-all-a-share-breadth
+
+python app.py breadth-update --provider tencent  # 显式联网并核对交易所名录
+python app.py breadth-doctor                     # 不联网查看最新快照及分板块覆盖
+python app.py serve --port 8765
+# 浏览器打开 http://127.0.0.1:8765/breadth.html
+```
+
+- 默认范围为沪深 A 股合计：上海主板、深圳主板、创业板、科创板；可分别查看主板合计和四个板块。
+- 北交所使用独立范围，不计入默认沪深 A 股分母；只有官方名录核验通过时才启用。本轮真实验证为 `354/354`。
+- 股票池以交易所官方名录决定，不受个人账户交易权限或自选股影响。科创板 `689009` 为 CDR，单独标记且不计入默认 A 股分母；创业板 `302132` 依官方板块身份纳入。
+- v0.9 已保存的主板快照迁移后明确标为 `mainboard_only`，不会被解释为全市场历史。即时源仍未给出可独立核验的交易日期，因此本版继续只显示时点快照，不伪造历史宽度曲线。
+- 真实联网覆盖、字段和各板块样本详见 `docs/V010_BREADTH_AUDIT.md`；SQLite 与备份不进入 Git。
 
 ## v0.9（开发中）：科创50、创业板50与华安黄金ETF价格观察
 - `/assets.html` 提供三对象真实收盘价走势图，可切换3个月、6个月、1/3/5/8/10年和全部历史；日期轴缩放自动细化。

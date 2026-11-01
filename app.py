@@ -516,8 +516,8 @@ def main():
     sub.add_parser("assets-doctor", help="无需联网：检查科创50、创业板50和黄金ETF本地日线")
     assets_update = sub.add_parser("assets-update", help="显式联网更新科创50、创业板50和黄金ETF价格")
     assets_update.add_argument("--asset", choices=[*WATCH_ASSETS, "all"], default="all")
-    sub.add_parser("breadth-doctor", help="无需联网：查看最新沪深主板真实市场宽度快照")
-    breadth_update = sub.add_parser("breadth-update", help="主动联网采集沪深主板A股行情快照（不自动回填交易日）")
+    sub.add_parser("breadth-doctor", help="无需联网：查看最新沪深分板真实市场宽度快照")
+    breadth_update = sub.add_parser("breadth-update", help="主动联网采集同一时点的沪深A股及可选北交所快照")
     breadth_update.add_argument(
         "--provider", choices=["auto", "eastmoney", "tencent", "sina"], default="auto",
         help="行情快照源；auto 会有界回退并记录实际来源",
