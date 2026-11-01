@@ -27,7 +27,7 @@ jobs:
         run: |
           python -m pytest tests -q
           python -m unittest discover -s tests -p 'test_*.py' -q
-          python -m py_compile app.py decomposition.py breadth.py asset_watch.py data_sources/*.py
+          python -m py_compile app.py decomposition.py breadth.py breadth_history.py breadth_linkage.py breadth_close_verify.py asset_watch.py data_sources/*.py
       - name: JavaScript logic and syntax
         run: |
           node tests/test_time_axis.js

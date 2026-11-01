@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>市场宽度 · VALUE LAB</title>
   <link rel="stylesheet" href="/styles.css?v=0.8.1" />
-  <link rel="stylesheet" href="/breadth.css?v=0.10" />
+  <link rel="stylesheet" href="/breadth.css?v=0.11.3" />
 </head>
 <body>
   <div class="shell">
@@ -18,7 +18,7 @@
       <div class="sidebar-bottom"><div class="small-dot"></div><span>只在本地运行 · 数据自主管理</span></div>
     </aside>
     <main class="main">
-      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场宽度</b></div><div class="header-right"><span class="tag">v0.10 WIP</span></div></header>
+      <header class="topbar"><div class="breadcrumbs">研究工作台 <span>/</span> <b>市场宽度</b></div><div class="header-right"><span class="tag">v0.11 Draft</span></div></header>
       <div class="content">
         <div class="page-header"><div><div class="eyebrow">MARKET BREADTH</div><h1>沪深 A 股市场宽度</h1><p>默认覆盖沪深主板、创业板和科创板；北交所独立核验和展示。</p></div></div>
         <div class="breadth-notice"><strong>时点数据说明</strong> · 本页面显示的是本机采集的股票报价快照，采集时间不自动等于证券交易所的交易日期。暂不提供未经核验的历史宽度走势。</div>
@@ -71,10 +71,29 @@
           </div>
         </section>
         <div class="breadth-notice subtle" id="breadth-history">历史宽度：需要经过交易日核验的多次可比快照，不能用当前股票名单追溯构造过去的数据。</div>
+        <section class="breadth-panel breadth-trend-panel" aria-labelledby="breadth-trend-title">
+          <div class="breadth-trend-head">
+            <div><h2 id="breadth-trend-title">可信交易日 · 市场宽度历史</h2>
+              <p>只使用独立核验的真实收盘样本；与上方市场范围和 ST 过滤同步。</p></div>
+            <span id="breadth-trend-count">有效交易日：0</span>
+          </div>
+          <div id="breadth-trend-empty" class="breadth-trend-empty" role="status">尚无至少两个经过真实收盘价独立核验的可比交易日。</div>
+          <div id="breadth-trend-chart" hidden>
+            <svg id="breadth-trend-svg" viewBox="0 0 880 235" role="img" aria-label="经独立核验的交易日上涨比例折线图"></svg>
+            <div class="breadth-trend-dates"><span id="breadth-trend-start">—</span><span id="breadth-trend-end">—</span></div>
+            <div class="breadth-trend-legend"><span class="raw">上涨比例</span><span class="ma5">5日均线</span><span class="ma20">20日均线</span></div>
+          </div>
+          <p id="breadth-trend-info" class="breadth-trend-info">未经验证的采集时刻不会绘图；暂不进行历史估值联动或择时判断。</p>
+          <div class="breadth-linkage" aria-live="polite">
+            <strong>指数 / 估值联动</strong>
+            <span id="breadth-linkage-status">正在检查严格同日样本…</span>
+            <div id="breadth-linkage-results" hidden></div>
+          </div>
+        </section>
         <p class="breadth-foot">方法论：市场统计范围与个人交易权限分离。同一快照仅使用一个行情源和一个采集时点，逐板与交易所官方名录核对；689 CDR 不计入默认 A 股分母。未交易和缺失样本单独展示，上涨占比不是买卖信号。</p>
       </div>
     </main>
   </div>
-  <script src="/breadth.js?v=0.10"></script>
+  <script src="/breadth.js?v=0.11.3"></script>
 </body>
 </html>

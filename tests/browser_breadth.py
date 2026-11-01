@@ -64,17 +64,94 @@ def fixture():
 def main():
     ARTIFACTS.mkdir(exist_ok=True)
     errors = []
-    state = {"empty": True}
+    state = {"empty": True, "verified": False}
 
     def intercept(route):
         payload = {"available": False, "message": "尚未采集真实市场宽度快照"} if state["empty"] else fixture()
         route.fulfill(status=200, content_type="application/json", body=json.dumps(payload, ensure_ascii=False))
+
+    def intercept_trend(route):
+        url = route.request.url
+        # TEST FIXTURE ONLY: this does not verify any real market close.
+        if not state["verified"]:
+            payload = {
+                "available": False, "point_count": 0, "observations": [],
+                "message": "测试：尚无至少两个经过独立核验的交易日",
+                "moving_averages": {"calendar_available": True, "ma5_ready": False, "ma20_ready": False},
+            }
+        else:
+            payload = {
+                "available": True, "point_count": 2,
+                "source_interface": "tests.fixture.breadth",
+                "coverage_scope": "sh_sz_all_a",
+                "moving_averages": {"calendar_available": True, "ma5_ready": False, "ma20_ready": False},
+                "observations": [
+                    {"trading_date": "2026-10-28", "advance_ratio": .30, "traded_count": 5000},
+                    {"trading_date": "2026-10-29", "advance_ratio": .60, "traded_count": 5000},
+                ],
+                "message": "TEST FIXTURE ONLY - 模拟有效证据，非真实历史宽度",
+            }
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps(payload, ensure_ascii=False))
+
+    def intercept_linkage(route):
+        if not state["verified"]:
+            payload = {
+                "available": False, "breadth_source_interface": None,
+                "message": "TEST FIXTURE ONLY：可信宽度历史样本不足",
+                "indices": {"000300": {
+                    "index_close_source": "tests.fixture.index_close", "index_close_frequency": "daily",
+                    "divergence": {"available": False, "common_dates": 2, "required_common_dates": 20,
+                                   "message": "至少需要20个稠密、严格同日样本"},
+                    "valuation_relationship": {"pe_ttm": {
+                        "available": False, "common_dates": 1, "required_common_dates": 12,
+                        "common_months": 1, "calendar_month_span": 1, "missing_month_count": 0,
+                        "frequency": "monthly", "source_interface": "tests.fixture.pe",
+                        "message": "至少需要12个连续自然月的严格同日估值样本",
+                    }},
+                }},
+            }
+        else:
+            payload = {
+                "available": True, "breadth_source_interface": "tests.fixture.breadth",
+                "message": "TEST FIXTURE ONLY：仅展示达到门槛的探索性结果",
+                "indices": {"000300": {
+                    "index_close_source": "tests.fixture.index_close", "index_close_frequency": "daily",
+                    "divergence": {
+                        "available": True, "common_dates": 20, "required_common_dates": 20,
+                        "start_date": "2026-10-01", "end_date": "2026-10-28",
+                        "breadth_change_percentage_points": 8.5, "index_return_pct": 5,
+                        "divergence_percentage_points": 3.5,
+                        "calculation": "上涨比例百分点变化 − 指数百分比收益；仅为探索性差值",
+                    },
+                    "valuation_relationship": {
+                        "pe_ttm": {
+                            "available": True, "common_dates": 12, "required_common_dates": 12,
+                            "common_months": 12, "calendar_month_span": 12,
+                            "missing_month_count": 0, "frequency": "monthly",
+                            "source_interface": "tests.fixture.pe", "start_date": "2025-11-28",
+                            "end_date": "2026-10-28", "correlation": .62,
+                            "calculation": "Pearson相关系数：同日上涨比例与估值水平；不填充、不插值",
+                        },
+                        "pb": {
+                            "available": False, "common_dates": 0, "required_common_dates": 12,
+                            "common_months": 0, "calendar_month_span": 0,
+                            "missing_month_count": 0, "frequency": None,
+                            "source_interface": None, "message": "尚未采集PB真实同日样本",
+                        },
+                    },
+                }},
+            }
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps(payload, ensure_ascii=False))
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("**/api/breadth", intercept)
+        page.route("**/api/breadth-trend?*", intercept_trend)
+        page.route("**/api/breadth-linkage?*", intercept_linkage)
         page.goto(BASE_URL + "/breadth.html", wait_until="networkidle")
         assert page.locator("#breadth-empty").is_visible()
         state["empty"] = False
@@ -83,6 +160,31 @@ def main():
         assert page.locator("#breadth-exchange").input_value() == "SH_SZ_ALL"
         assert page.locator("#b-identified").inner_text() == "8"
         assert "未验证" in page.locator("#breadth-date-trust").inner_text()
+        assert page.locator("#breadth-trend-empty").is_visible()
+        assert not page.locator("#breadth-trend-chart").is_visible()
+        assert "尚无至少两个经过独立核验" in page.locator("#breadth-history").inner_text()
+        assert "已核验" not in page.locator("#breadth-history").inner_text()
+        assert "样本不足" in page.locator("#breadth-linkage-status").inner_text()
+        assert "2 / 20" in page.locator("#breadth-linkage-results").inner_text()
+        assert "至少需要12个连续自然月" in page.locator("#breadth-linkage-results").inner_text()
+        state["verified"] = True
+        page.locator("#breadth-reload").click()
+        page.locator("#breadth-trend-chart").wait_for(state="visible")
+        assert page.locator("#breadth-trend-count").inner_text() == "有效交易日：2"
+        assert page.locator("#breadth-trend-start").inner_text() == "2026-10-28"
+        assert page.locator("#breadth-trend-svg path").count() == 1
+        history_text=page.locator("#breadth-history").inner_text()
+        assert "已核验2个交易日" in history_text
+        assert "tests.fixture.breadth" in history_text
+        assert "不能" not in history_text
+        linkage_text=page.locator("#breadth-linkage-results").inner_text()
+        assert "+3.50 个百分点" in linkage_text
+        assert "上涨比例变化 +8.50 个百分点 − 指数收益 +5.00%" in linkage_text
+        assert "2026-10-01 → 2026-10-28" in linkage_text
+        assert "Pearson r = 0.620" in linkage_text
+        assert "tests.fixture.pe · monthly" in linkage_text
+        assert "缺月0" in linkage_text
+
         for scope, expected in (("MAIN_ALL", "4"), ("CHINEXT", "2"), ("STAR", "2"), ("BSE", "1"), ("ALL_A", "9")):
             page.locator("#breadth-exchange").select_option(scope)
             assert page.locator("#b-identified").inner_text() == expected
