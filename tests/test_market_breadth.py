@@ -233,6 +233,7 @@ def test_official_pool_excludes_unexpected_prefix_matching_quote_from_all_denomi
         q("600001", "沪主", 1), q("000001", "深主", -1),
         q("302132", "创业板特殊代码", 2), q("688001", "科创", -2),
         q("689009", "九号公司-WD", 3),
+        q("920001", "北交所样本", 1),
         q("688999", "伪造名录外科创报价", 20),
     ]
     pool = {
@@ -241,6 +242,7 @@ def test_official_pool_excludes_unexpected_prefix_matching_quote_from_all_denomi
         "302132": {"exchange": "SZ", "board": "CHINEXT", "security_type": "A_SHARE", "name": "创业板特殊代码"},
         "688001": {"exchange": "SH", "board": "STAR", "security_type": "A_SHARE", "name": "科创"},
         "689009": {"exchange": "SH", "board": "STAR", "security_type": "CDR", "name": "九号公司"},
+        "920001": {"exchange": "BJ", "board": "BSE", "security_type": "A_SHARE", "name": "北交所样本"},
     }
     capture = breadth.create_capture(
         rows, source_name="fixture", source_interface="one.snapshot", min_identified=1,
@@ -251,7 +253,8 @@ def test_official_pool_excludes_unexpected_prefix_matching_quote_from_all_denomi
     assert all_market["advances"] == 2
     assert all_market["declines"] == 2
     assert all_market["advance_ratio"] == .5
-    assert breadth.summarize(capture["quotes"], scope="ALL_A")["identified_count"] == 4
+    assert breadth.summarize(capture["quotes"], scope="BSE")["identified_count"] == 1
+    assert breadth.summarize(capture["quotes"], scope="ALL_A")["identified_count"] == 5
     assert capture["quality"]["unexpected_quote_count"] == 1
     assert capture["quality"]["unexpected_quote_sample"] == ["688999"]
     assert capture["quality"]["not_in_official_pool"] == 1
@@ -260,7 +263,7 @@ def test_official_pool_excludes_unexpected_prefix_matching_quote_from_all_denomi
         "outside_official_pool": 1, "special_security_type": 1, "invalid_code": 0,
     }
     assert {row["code"] for row in capture["quotes"]} == {
-        "600001", "000001", "302132", "688001", "689009",
+        "600001", "000001", "302132", "688001", "689009", "920001",
     }
 
     with tempfile.TemporaryDirectory() as directory:
@@ -268,7 +271,8 @@ def test_official_pool_excludes_unexpected_prefix_matching_quote_from_all_denomi
         breadth.persist_capture(capture, db_path)
         report = breadth.latest_report(db_path)
         assert report["groups"]["SH_SZ_ALL_all"]["identified_count"] == 4
-        assert report["groups"]["ALL_A_all"]["identified_count"] == 4
+        assert report["groups"]["BSE_all"]["identified_count"] == 1
+        assert report["groups"]["ALL_A_all"]["identified_count"] == 5
         assert report["capture"]["quality"]["unexpected_quote_count"] == 1
         with sqlite3.connect(db_path) as db:
             assert db.execute(
