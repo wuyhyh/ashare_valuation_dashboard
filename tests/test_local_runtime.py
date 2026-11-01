@@ -83,6 +83,7 @@ class RuntimeInfoTests(TestCase):
                 self.assertEqual(len(market_calls), 4)
                 self.assertEqual(len(valuation_calls), 8)
                 self.assertTrue(all(call[2] == "csindex_official" for call in market_calls))
+                self.assertEqual(dict((code, start) for code, start, _ in market_calls)["000300"], "20050408")
                 self.assertTrue(Path(result["backup"]).exists())
                 with sqlite3.connect(result["backup"]) as conn:
                     self.assertEqual(conn.execute("SELECT value FROM user_data").fetchone()[0], "keep-me")
@@ -99,6 +100,17 @@ class RuntimeInfoTests(TestCase):
             self.assertEqual(result["success"], 11)
             self.assertEqual(result["failed"], 1)
             self.assertIn("simulated 429", result["results"][-2]["error"] if result["results"][-2]["status"] == "failed" else str(result["results"]))
+
+    def test_index_update_defaults_to_full_history_and_respects_explicit_start(self):
+        self.assertEqual(app.MARKET_SYNC_START["000300"], "20050408")
+        with patch.object(app, "update_index_history", return_value={"count": 1}) as worker:
+            app.update_market("000300", provider_name="csindex_official")
+            self.assertEqual(worker.call_args.kwargs["start_date"], "20050408")
+            app.update_market("000300", start_date="20200101", provider_name="sina")
+            self.assertEqual(worker.call_args.kwargs["start_date"], "20200101")
+            app.update_market("000016", provider_name="csindex_official")
+            self.assertEqual(worker.call_args.kwargs["start_date"], "20050101")
+
 
 
 if __name__ == "__main__":
